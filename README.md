@@ -4,6 +4,13 @@ A household mental-load manager that runs on your own machine. It reads the scho
 
 Built for one family's real use. It's shared here as a template you set up with Claude Code.
 
+<p>
+  <img src="docs/screenshots/home.png" alt="The home page for the fictional example family" width="68%">
+  <img src="docs/screenshots/home-phone.png" alt="The same page on a phone" width="28%">
+</p>
+
+The screenshots show the fictional example family that ships with the app.
+
 ## Why it's built this way
 
 Family apps that extract dates from email tend to fail the same way: small mistakes pile up. A wrong date here, a missed schedule change there, until checking the app is more work than reading the mail. This one is built around not trusting a single extraction:
@@ -41,7 +48,8 @@ You need Python 3.11+ and, for the AI features, [Claude Code](https://claude.com
 git clone <this repo>
 cd family-manager
 pip install -r requirements.txt
-python app.py        # http://127.0.0.1:5088, showing a fictional example family
+python demo_seed.py  # optional: a few weeks of the example family's school stuff
+python app.py        # http://127.0.0.1:5088
 ```
 
 Then open the folder in Claude Code and say **"set up my family."** It asks about your household, writes `data/household.json`, walks you through the Gmail app password and calendar access, runs the first mail check, and schedules the nightly run. [CLAUDE.md](CLAUDE.md) is the script it follows, and you can follow it by hand.

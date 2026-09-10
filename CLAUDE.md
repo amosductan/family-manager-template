@@ -16,7 +16,9 @@ approving calendar access).
      use, and any nickname that shows up in calendar titles;
    - who else covers days the kids are out (camp, grandparents, a sitter);
    - the email domains the schools, camps and activities write from, if they know them.
-3. **Write `data/household.json`** in the shape of `config/household.example.json`. Every
+3. **Clear the demo, then write `data/household.json`.** If `python demo_seed.py` was run, run
+   `python demo_seed.py --clear` first, or the example kids stay on the board. Then write
+   `data/household.json` in the shape of `config/household.example.json`. Every
    school or activity domain becomes a `sources` entry. A partner who forwards school mail is a
    source with `keywords`, so only school-looking forwards count. Run `python family.py`; it
    must print the household back without an error.

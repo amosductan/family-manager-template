@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+{% block title %}What it cost — {{ trip.name }}{% endblock %}
+
+{# The ledger. One number at the top -- the whole trip -- and every piece of it named
+   underneath, including the pieces that are NOT in it (home charges that posted during
+   the trip, subscriptions, the bank's pending copies of already-posted charges). A total
+   that quietly absorbs or drops things is a total that lies in whichever direction is
+   convenient, so nothing here is dropped without being counted out loud.
+
+   Amounts are USD as BILLED -- the only number the statement shows. The CAD figure is
+   derived from a labeled Bank of Canada rate and is approximate; the card's own rate is
+   what was actually charged and nobody here can see it. #}
+
+{% macro usd(n) %}{{ n | money('USD') }}{% endmacro %}
+{% macro cadx(r) %}{% if r.fx %}<span class="km">≈ {{ (r.amount * r.fx) | money('CAD') }}</span>{% endif %}{% endmacro %}
+
+{% macro ledger_row(r, editable=True) %}
+<tr id="exp-{{ r.id }}" class="{{ 'dupe' if r.dup_of }} {{ 'pending' if r.status == 'pending' }}">
+  <td class="when">
+    {% if r.posted %}{{ r.posted[5:] | replace('-', '/') }}{% elif r.status == 'pending' %}<span class="chip s-unknown">pending</span>{% else %}<span class="km">date not known</span>{% endif %}
+    {% if r.day and r.day != r.posted %}<div class="km">on {{ r.day[5:] | replace('-', '/') }}</div>{% endif %}
+  </td>
+  <td class="what">
+    <div class="lbl-line"><b>{{ r.label or r.merchant }}</b>
+      {% if r.dup_of %}<span class="chip s-quiet">copy of #{{ r.dup_of }}, not counted</span>{% endif %}
+      {% if r.item_title %}<span class="chip c-travel_home">settles: {{ r.item_title | truncate(38) }}</span>{% endif %}
+    </div>
+    <div class="km mono">{{ r.merchant }}</div>
+    {% if r.note %}<div class="small" style="margin-top:3px">{{ r.note }}</div>{% endif %}
+    {% set fee = fees_by_parent.get(r.id) %}
+    {% if fee %}<div class="km">+ {{ usd(fee.amount) }} foreign-transaction fee</div>{% endif %}
+    {% if editable %}
+    <details class="editrow">
+      <summary>Edit</summary>
+      <form method="post" action="/trip/{{ trip.slug }}/expense/{{ r.id }}" class="formgrid" style="margin-top:8px">
+        <label>What it was<input name="label" value="{{ r.label or '' }}"></label>
+        <label>Category
+          <select name="category">
+            {% for k, v in categories.items() %}{% if k != 'fee' %}<option value="{{ k }}" {{ 'selected' if r.category == k }}>{{ v }}</option>{% endif %}{% endfor %}
+          </select></label>
+        <label>Counts toward
+          <select name="scope">
+            {% for k, v in scopes.items() %}<option value="{{ k }}" {{ 'selected' if r.scope == k }}>{{ v }}</option>{% endfor %}
+          </select></label>
+        <label>Day it happened<input type="date" name="day" value="{{ r.day or '' }}"></label>
+        <label>Settles a plan item
+          <select name="item_id">
+            <option value="">none</option>
+            {% for it in items %}<option value="{{ it.id }}" {{ 'selected' if r.item_id == it.id }}>{{ it.title | truncate(60) }}</option>{% endfor %}
+          </select></label>
+        <label style="grid-column:1/-1">Note<input name="note" value="{{ r.note or '' }}"></label>
+        <label class="checkline"><input type="checkbox" name="settled" value="1" {{ 'checked' if r.settled }}>
+          <span>Difference from the plan is checked and correct &mdash; stop flagging it</span></label>
+        <input type="hidden" name="who" class="who-field" value="">
+        <div><button class="mini solid">Save</button></div>
+      </form>
+      <form method="post" action="/trip/{{ trip.slug }}/expense/{{ r.id }}/delete" style="margin-top:6px"
+            onsubmit="return confirm('Remove this line and its fee?')">
+        <button class="mini">Remove line</button>
+      </form>
+    </details>
+    {% endif %}
+  </td>
+  <td class="card-col small muted">{{ r.card or '' }}</td>
+  <td class="amt"><b>{{ usd(r.amount) }}</b>{{ cadx(r) }}</td>
+</tr>
+{% endmacro %}
+
+{% block content %}
+<style>
+  .ledger td.when { white-space: nowrap; width: 72px; }
+  .ledger td.amt { text-align: right; white-space: nowrap; }
+  .ledger td.amt .km { display: block; }
+  .ledger td.card-col { width: 150px; }
+  .ledger tr.dupe td { opacity: .55; }
+  .ledger tr.pending td.amt b { color: var(--warn); }
+  .km { font-size: 11.5px; color: var(--muted); }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .2px; }
+  .lbl-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .editrow summary { cursor: pointer; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+  .editrow label { font-size: 11px; color: var(--muted); }
+  .bignum { font-family: var(--serif); font-size: 40px; color: var(--accent); line-height: 1; }
+  .pieces { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 24px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .pieces .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); }
+  .pieces .val { font-size: 15px; }
+  .mini.solid { background: var(--accent); color: #fff; border-color: var(--accent); }
+  table.compact td, table.compact th { padding: 5px 8px; }
+  table.compact td.n { text-align: right; white-space: nowrap; }
+  .twocol { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .delta-up { color: var(--err); } .delta-down { color: var(--ok); }
+  .checkline { grid-column: 1/-1; display: flex; align-items: center; gap: 8px; }
+  .checkline input { width: auto; }
+  @media (max-width: 720px) {
+    .ledger td.card-col { display: none; }
+    .ledger td.when { width: 52px; }
+  }
+</style>
+
+<div class="card">
+  <div class="small muted" style="text-transform:uppercase;letter-spacing:1.2px;font-size:10.5px">
+    {{ trip.name }}{% if date_range %} · {{ date_range }}{% endif %}</div>
+  <h1 style="margin:2px 0 10px">What it cost</h1>
+  <div class="bignum">{{ usd(s.whole) }}</div>
+  <div class="small muted" style="margin-top:6px">
+    The whole trip, in US dollars as billed: what was booked ahead plus what was spent on
+    the ground plus the card fees, {{ s.during_n + s.before_n }} charges.
+    {% if s.pending_n %}Includes {{ usd(s.pending) }} across {{ s.pending_n }} still pending at the bank.{% endif %}
+  </div>
+  <div class="pieces">
+    <div><div class="lbl">Booked ahead</div><div class="val">{{ usd(s.before) }}</div>
+      <div class="km">flights, lodging, airport parking</div></div>
+    <div><div class="lbl">On the ground</div><div class="val">{{ usd(s.during) }}</div>
+      <div class="km">{{ s.during_n }} charges{% if s.during_cad %} · ≈ {{ s.during_cad | money('CAD') }}{% endif %}</div></div>
+    <div><div class="lbl">Foreign transaction fees</div><div class="val">{{ usd(s.fees) }}</div>
+      <div class="km">{{ s.fees_n }} fee{{ 's' if s.fees_n != 1 }}</div></div>
+    <div><div class="lbl">Not counted, by name</div>
+      <div class="val small">{{ s.home_n }} home charges {{ usd(s.home) }}<br>{{ s.excluded_n }} bills / subscriptions {{ usd(s.excluded) }}<br>{{ s.dups_n }} pending copies {{ usd(s.dups) }}</div></div>
+    <div><div class="lbl">Everything</div>
+      <div class="val"><a class="btn ghost small" href="/trip/{{ trip.slug }}/expenses.xlsx">
+        <svg class="icon"><use href="#ic-download"></use></svg> Spreadsheet</a></div></div>
+  </div>
+  {% if s.fx_source %}
+  <p class="km" style="margin:10px 0 0">CAD figures are approximate: {{ s.fx_source | replace('(pending; newest rate held)', '') }} at the posting date.</p>
+  {% endif %}
+</div>
+
+<div class="modebar">
+  <div class="viewswitch">
+    <a href="/trip/{{ trip.slug }}">Plan the days</a>
+    <a href="/trip/{{ trip.slug }}?view=sheet">Day sheet</a>
+    <a href="/trip/{{ trip.slug }}/logistics">How far apart</a>
+    <a href="/trip/{{ trip.slug }}/expenses" class="on">What it cost</a>
+  </div>
+  <div class="spacer"></div>
+  <span class="small muted">Changes are recorded against whoever made them</span>
+</div>
+
+{# ---- worth knowing: the things the numbers say that a total alone would hide ---- #}
+{% if pva or fee_cards %}
+<div class="card">
+  <h2 style="margin-top:0">Worth knowing</h2>
+  {% for p in pva if p.delta is not none and p.delta | abs >= 20 and not p.settled %}
+  <div class="openbox {{ 'hard' if p.delta > 0 }}">
+    <strong>{{ p.item.title }}</strong>: charged {{ usd(p.usd) }}
+    {%- if p.actual is not none %} (≈ {{ p.actual | money(p.est_cur) }}){% endif %}
+    against a plan of {{ p.est | money(p.est_cur) }},
+    <b class="{{ 'delta-up' if p.delta > 0 else 'delta-down' }}">{{ '+' if p.delta > 0 }}{{ p.delta | money(p.est_cur) }}</b>.
+    {% for r in p.rows if r.note %}<div class="small" style="margin-top:4px">{{ r.note }}</div>{% endfor %}
+  </div>
+  {% endfor %}
+  {% for card, d in fee_cards %}
+  <div class="openbox">
+    <strong>{{ usd(d.fees) }} in foreign-transaction fees</strong> on {{ card }}: {{ d.n }} charges,
+    {{ usd(d.usd) }}, went on the card that charges 3% abroad. The plan's own note said to put the
+    whole trip on the Travel Rewards card, which charges none.
+  </div>
+  {% endfor %}
+  {% if s.pending_n %}
+  <div class="openbox opt">
+    <strong>{{ s.pending_n }} charges are still pending</strong> ({{ usd(s.pending) }}). They're counted,
+    but the amount can move when they post. Two pending lines that match an already-posted charge are
+    marked as copies and counted once.
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ---- planned vs actual: only where a charge was explicitly tied to a plan item ---- #}
+{% if pva %}
+<div class="card">
+  <h2 style="margin-top:0">Plan vs. what it cost</h2>
+  <p class="small muted" style="margin:0 0 8px">Charges tied to a plan item. Tie more with "Settles a plan item" below.</p>
+  <div style="overflow-x:auto">
+  <table class="compact">
+    <tr><th>Plan item</th><th>Planned</th><th>Charged</th><th>Difference</th></tr>
+    {% for p in pva %}
+    <tr>
+      <td>{{ p.item.title }}<div class="km">{{ p.item.cost or '' }}</div></td>
+      <td class="n">{% if p.est is not none and p.est > 0 %}{{ p.est | money(p.est_cur) }}{% else %}<span class="muted">paid ahead</span>{% endif %}</td>
+      <td class="n">{{ usd(p.usd) }}{% if p.actual is not none and p.est_cur != 'USD' %}<div class="km">≈ {{ p.actual | money(p.est_cur) }}</div>{% endif %}</td>
+      <td class="n">{% if p.delta is not none %}<b class="{{ 'delta-up' if p.delta > 0 and not p.settled else 'delta-down' if p.delta < 0 else '' }}">{{ '+' if p.delta > 0 }}{{ p.delta | money(p.est_cur) }}</b>
+        {%- if p.settled %}<div class="km">checked, correct</div>{% endif %}
+      {%- else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{# ---- the breakdowns ---- #}
+<div class="twocol">
+  <div class="card">
+    <h2 style="margin-top:0">On the ground, by kind</h2>
+    <table class="compact">
+      <tr><th>Kind</th><th class="n">Charges</th><th class="n">USD</th></tr>
+      {% for k, d in s.cats %}
+      <tr><td>{{ categories.get(k, k) }}</td><td class="n">{{ d.n }}</td><td class="n">{{ usd(d.usd) }}</td></tr>
+      {% endfor %}
+      <tr><td><b>Total</b></td><td class="n">{{ s.during_n + s.fees_n }}</td><td class="n"><b>{{ usd(s.during + s.fees) }}</b></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">By day</h2>
+    <p class="km" style="margin:0 0 6px">By the day it happened, or the posting date.</p>
+    <table class="compact">
+      <tr><th>Day</th><th class="n">Charges</th><th class="n">USD</th></tr>
+      {% for k, d in s.days %}
+      <tr><td>{{ k if k == 'pending' else k[5:] | replace('-', '/') }}{% if k != 'pending' and d.dated < d.n %} <span class="km">({{ d.n - d.dated }} by posting date)</span>{% endif %}</td>
+        <td class="n">{{ d.n }}</td><td class="n">{{ usd(d.usd) }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">By card</h2>
+    <table class="compact">
+      <tr><th>Card</th><th class="n">Charges</th><th class="n">USD</th><th class="n">Fees</th></tr>
+      {% for card, d in s.cards %}
+      <tr><td>{{ card }}</td><td class="n">{{ d.n }}</td><td class="n">{{ usd(d.usd) }}</td><td class="n">{{ usd(d.fees) if d.fees else '—' }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+{# ---- the ledger itself ---- #}
+{% set during = rows | selectattr('phase', 'equalto', 'during') | rejectattr('fee_for') | selectattr('scope', 'equalto', 'trip') | list %}
+{% set before = rows | selectattr('phase', 'equalto', 'before') | rejectattr('fee_for') | list %}
+{% set other = rows | rejectattr('fee_for') | rejectattr('scope', 'equalto', 'trip') | list %}
+
+<div class="card" id="add">
+  <details {{ 'open' if err }}>
+    <summary class="small muted" style="cursor:pointer">Add a charge that isn't here yet</summary>
+    {% if err == 'amount' %}<div class="openbox hard">That amount didn't parse. Digits and a decimal point, no currency.</div>{% endif %}
+    {% if err == 'merchant' %}<div class="openbox hard">A line needs at least the statement text.</div>{% endif %}
+    <form method="post" action="/trip/{{ trip.slug }}/expense/add" class="formgrid" style="margin-top:10px">
+      <label>Statement line<input name="merchant" required placeholder="as the bank printed it"></label>
+      <label>What it was<input name="label" placeholder="Pizza place, dinner"></label>
+      <label>Amount, USD as billed<input name="amount" required inputmode="decimal" placeholder="94.39"></label>
+      <label>Foreign-transaction fee, if any<input name="fee" inputmode="decimal" placeholder="2.83"></label>
+      <label>Posted on<input type="date" name="posted"><span class="km">leave empty if still pending</span></label>
+      <label>Day it happened<input type="date" name="day"></label>
+      <label>Card
+        <select name="card">
+          <option value="...5678 Travel card">...5678 Travel card</option>
+          <option value="...1234 Cash back card">...1234 Cash back card</option>
+          <option value="">other / unknown</option>
+        </select></label>
+      <label>Category
+        <select name="category">
+          {% for k, v in categories.items() %}{% if k != 'fee' %}<option value="{{ k }}">{{ v }}</option>{% endif %}{% endfor %}
+        </select></label>
+      <label>Counts toward
+        <select name="scope">{% for k, v in scopes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+      <label>When
+        <select name="phase"><option value="during">on the ground</option><option value="before">booked ahead</option></select></label>
+      <label style="grid-column:1/-1">Note<input name="note"></label>
+      <input type="hidden" name="who" class="who-field" value="">
+      <div><button class="btn small">Add it</button></div>
+    </form>
+  </details>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">On the ground <span class="small muted">{{ during | length }} charges · {{ usd(s.during) }}</span></h2>
+  <div style="overflow-x:auto">
+  <table class="ledger">
+    <tr><th>Posted</th><th>What</th><th>Card</th><th style="text-align:right">USD</th></tr>
+    {% for r in during %}{{ ledger_row(r) }}{% endfor %}
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Booked ahead <span class="small muted">{{ before | length }} · {{ usd(s.before) }}</span></h2>
+  <div style="overflow-x:auto">
+  <table class="ledger">
+    <tr><th>Paid</th><th>What</th><th>Card</th><th style="text-align:right">USD</th></tr>
+    {% for r in before %}{{ ledger_row(r) }}{% endfor %}
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <details>
+    <summary class="small muted" style="cursor:pointer">
+      Not counted: {{ other | length }} lines that posted in the same window but aren't the trip
+      ({{ usd(s.home + s.excluded) }}). Open to reclassify any of them.
+    </summary>
+    <div style="overflow-x:auto;margin-top:10px">
+    <table class="ledger">
+      <tr><th>Posted</th><th>What</th><th>Card</th><th style="text-align:right">USD</th></tr>
+      {% for r in other %}{{ ledger_row(r) }}{% endfor %}
+    </table>
+    </div>
+  </details>
+</div>
+
+<p class="km" style="margin-top:14px">From the Bank of America app, 8/30/2026. Edits made here are never overwritten.</p>
+
+<script>
+document.querySelectorAll('.who-field').forEach(f => {
+  try { f.value = localStorage.getItem('fm_who') || ''; } catch (e) {}
+});
+</script>
+{% endblock %}

@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Sitters — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">Who we call, and the sheet for the counter</div>
+<h1>Sitters</h1>
+
+<div class="card">
+  <div class="st-top">
+    <div class="statrow">
+      <div class="stat"><div class="num">{{ active_n }}</div><div class="lbl">In rotation</div></div>
+      <div class="stat"><div class="num">{{ booked|length }}</div><div class="lbl">Days booked</div></div>
+      <div class="stat"><div class="num">{{ filled }}<span class="small muted">/{{ total }}</span></div><div class="lbl">Sheet filled in</div></div>
+    </div>
+    <div class="st-tools">
+      <label class="st-who">I am
+        <select id="who-picker" class="who-field">
+          <option value="">(pick)</option>{% for p in PARENTS %}<option>{{ p }}</option>{% endfor %}
+        </select>
+      </label>
+      <a class="btn ghost small" href="/sitters/sheet" target="_blank">Printable sheet</a>
+      <a class="btn ghost small" href="/sitters.xlsx"><svg class="icon"><use href="#ic-download"/></svg> Spreadsheet</a>
+    </div>
+  </div>
+  {% if request.args.get('error') %}<p class="small" style="color:var(--err)">{{ request.args.get('error') }}</p>{% endif %}
+</div>
+
+<div class="st-grid">
+<section>
+  <h2>In rotation</h2>
+  {% if not roster %}
+  <p class="small muted">Nobody yet. Add the sitters you actually call below — the order here is the order you call them.</p>
+  {% endif %}
+  {% for s in roster %}
+  <div class="card sitter {{ 'inactive' if not s.active }}" id="s-{{ s.id }}" data-id="{{ s.id }}">
+    <div class="sit-head">
+      <div class="sit-name">
+        {% if s.active %}<span class="ord">{{ loop.index }}</span>{% endif %}
+        <strong>{{ s.name }}</strong>
+        {% if not s.active %}<span class="chip s-quiet">Not in rotation</span>{% endif %}
+        {% if s.kids_ok and s.kids_ok != 'Both' %}<span class="chip {{ (s.kids_ok)|kid_class }}">{{ s.kids_ok }} only</span>{% endif %}
+      </div>
+      <div class="sit-actions">
+        {% if s.phone %}<a class="btn ghost small" href="tel:{{ s.phone|replace(' ', '') }}">Call</a>
+        <a class="btn ghost small" href="sms:{{ s.phone|replace(' ', '') }}">Text</a>{% endif %}
+        {% if s.active %}
+        <button class="btn ghost small mv" data-dir="up" type="button" title="Call earlier">Up</button>
+        <button class="btn ghost small mv" data-dir="down" type="button" title="Call later">Down</button>
+        {% endif %}
+        <button class="btn ghost small edit" type="button">Edit</button>
+      </div>
+    </div>
+    <div class="sit-facts small">
+      {% if s.phone %}<span><span class="lbl">Phone</span> {{ s.phone }}</span>{% endif %}
+      {% if s.email %}<span><span class="lbl">Email</span> {{ s.email }}</span>{% endif %}
+      {% if s.rate %}<span><span class="lbl">Rate</span> {{ s.rate }}</span>{% endif %}
+      {% if s.how_we_know %}<span><span class="lbl">How we know them</span> {{ s.how_we_know }}</span>{% endif %}
+      {% if s.availability %}<span><span class="lbl">Available</span> {{ s.availability }}</span>{% endif %}
+      {% if s.notes %}<span class="wide"><span class="lbl">Notes</span> {{ s.notes }}</span>{% endif %}
+      {% if s.updated_by %}<span class="muted">updated by {{ s.updated_by }}{% if s.updated_at %} · {{ s.updated_at[:10] }}{% endif %}</span>{% endif %}
+    </div>
+    <form class="sit-edit" method="post" action="/sitters/save" hidden>
+      <input type="hidden" name="id" value="{{ s.id }}">
+      <input type="hidden" name="who" class="who-field">
+      <div class="formgrid">
+        <label>Name<input name="name" value="{{ s.name }}" required></label>
+        <label>Phone<input name="phone" value="{{ s.phone or '' }}" inputmode="tel"></label>
+        <label>Email<input name="email" value="{{ s.email or '' }}" inputmode="email"></label>
+        <label>Rate<input name="rate" value="{{ s.rate or '' }}" placeholder="$25/hr"></label>
+        <label>How we know them<input name="how_we_know" value="{{ s.how_we_know or '' }}"></label>
+        <label>Kids<select name="kids_ok">{% for k in kids_ok %}<option {{ 'selected' if k == s.kids_ok }}>{{ k }}</option>{% endfor %}</select></label>
+        <label>Availability<input name="availability" value="{{ s.availability or '' }}" placeholder="weeknights, school days ok"></label>
+        <label>In rotation<select name="active"><option value="1" {{ 'selected' if s.active }}>yes</option><option value="0" {{ 'selected' if not s.active }}>no</option></select></label>
+      </div>
+      <div style="margin-top:10px"><label>Notes<input name="notes" value="{{ s.notes or '' }}"></label></div>
+      <div class="sit-editbtns">
+        <button class="btn small" type="submit">Save</button>
+        <button class="btn ghost small cancel" type="button">Cancel</button>
+        <button class="btn ghost small del" type="button" style="margin-left:auto; color:var(--err); border-color:var(--err)">Remove</button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+
+  <div class="card">
+    <h2 style="margin-top:0">Add a sitter</h2>
+    <form method="post" action="/sitters/save">
+      <input type="hidden" name="who" class="who-field">
+      <div class="formgrid">
+        <label>Name<input name="name" required></label>
+        <label>Phone<input name="phone" inputmode="tel"></label>
+        <label>Email<input name="email" inputmode="email"></label>
+        <label>Rate<input name="rate" placeholder="$25/hr"></label>
+        <label>How we know them<input name="how_we_know" placeholder="neighbor, care.com, a teacher's daughter"></label>
+        <label>Kids<select name="kids_ok">{% for k in kids_ok %}<option>{{ k }}</option>{% endfor %}</select></label>
+        <label>Availability<input name="availability" placeholder="weeknights, not Fridays"></label>
+      </div>
+      <div style="margin-top:10px"><label>Notes<input name="notes" placeholder="drives, CPR certified, the kids love her"></label></div>
+      <div style="margin-top:12px"><button class="btn" type="submit">Add</button></div>
+    </form>
+  </div>
+
+  <h2>Days a sitter has</h2>
+  <div class="card">
+    {% if booked %}
+    {% for d in booked %}
+    <div class="srcrow">
+      <div class="name">{{ d.day }}<div class="sub">{{ d.note or '' }}</div></div>
+      {% if d.sitter %}<span class="chip s-ok">{{ d.sitter }}</span>{% else %}<span class="chip s-missing">not named yet</span>{% endif %}
+      {% if d.gcal_event_id %}<span class="chip s-quiet">On calendar</span>{% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="small muted">No day is assigned to a babysitter yet.</p>
+    {% endif %}
+    <p class="small muted" style="margin-top:10px">Set a day to <strong>Babysitter</strong> on <a href="/days-off">Days off</a> and pick who; the calendar invite carries their name and number.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The sitter sheet</h2>
+  <p class="small muted">Fill in what's true. The printable sheet shows only filled rows.</p>
+  {% for sec in sections %}
+  <div class="card infosec" data-section="{{ sec.section }}">
+    <div class="infosec-head">
+      <h3>{{ sec.section }}</h3>
+      <span class="small muted">{{ sec.filled }} of {{ sec.rows|length }}</span>
+    </div>
+    {% for r in sec.rows %}
+    <label class="inforow" data-id="{{ r.id }}">
+      <span class="lbl">{{ r.label }}</span>
+      <input type="text" class="infoval" value="{{ r.value or '' }}" placeholder="—">
+      <span class="rowstatus small muted"></span>
+    </label>
+    {% endfor %}
+    <form class="infoadd small">
+      <input type="text" class="infoadd-label" placeholder="Add a line to {{ sec.section }}…">
+      <button class="btn ghost small" type="submit">Add</button>
+    </form>
+  </div>
+  {% endfor %}
+</section>
+</div>
+
+<style>
+.st-top { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; flex-wrap:wrap; }
+.st-tools { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.st-who { display:flex; align-items:center; gap:8px; font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+.st-who select { width:auto; }
+.st-grid { display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; }
+.st-grid h2:first-child { margin-top:8px; }
+.st-grid section { min-width:0; }
+.sitter { margin-bottom:12px; }
+.sitter.inactive { opacity:.7; }
+.sit-head { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; }
+.sit-name { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:16px; }
+.sit-name .ord { font-family:var(--serif); color:var(--accent); font-size:20px; min-width:18px; }
+.sit-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.sit-facts { display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; }
+.sit-facts .lbl { font-size:10.5px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-right:4px; }
+.sit-facts .wide { flex-basis:100%; }
+.sit-edit { margin-top:12px; padding-top:12px; border-top:1px dashed var(--line); }
+.sit-editbtns { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+.infosec { margin-bottom:12px; }
+.infosec-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+.infosec h3 { font-family:var(--serif); font-weight:400; font-size:17px; margin:0 0 8px; }
+.inforow { display:grid; grid-template-columns: minmax(120px, 38%) minmax(0,1fr) auto; gap:8px; align-items:center; padding:5px 0; border-top:1px dashed var(--line); }
+.inforow .lbl { font-size:12.5px; color:var(--muted); }
+.inforow input { padding:5px 7px; }
+.infoadd { display:flex; gap:8px; margin-top:8px; }
+.infoadd input { flex:1 1 0; min-width:0; }
+@media (max-width: 900px) { .st-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 720px) {
+  .inforow { grid-template-columns: minmax(0,1fr); gap:3px; }
+  .inforow .rowstatus:empty { display:none; }
+}
+</style>
+
+<script>
+const who = () => localStorage.getItem('fm_who') || '';
+document.getElementById('who-picker').addEventListener('change', e => {
+  localStorage.setItem('fm_who', e.target.value);
+  document.querySelectorAll('.who-field').forEach(f => { f.value = e.target.value; });
+});
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const data = await r.json().catch(() => ({error: 'bad response'}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+// Roster cards: edit in place, reorder, remove.
+document.querySelectorAll('.sitter').forEach(card => {
+  const id = card.dataset.id;
+  const form = card.querySelector('.sit-edit');
+  card.querySelector('.edit').addEventListener('click', () => {
+    form.hidden = !form.hidden;
+    form.querySelectorAll('.who-field').forEach(f => { f.value = who(); });
+  });
+  form.querySelector('.cancel').addEventListener('click', () => { form.hidden = true; });
+  card.querySelectorAll('.mv').forEach(b => b.addEventListener('click', async () => {
+    await post('/sitters/' + id + '/move', {direction: b.dataset.dir});
+    location.reload();
+  }));
+  form.querySelector('.del').addEventListener('click', async () => {
+    // No confirm() dialog: it blocks the tab. Two clicks instead.
+    const b = form.querySelector('.del');
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to remove'; return; }
+    await post('/sitters/' + id + '/delete', {});
+    location.reload();
+  });
+});
+
+// The sheet: save a field the moment it changes, and say who.
+document.querySelectorAll('.inforow').forEach(row => {
+  const input = row.querySelector('.infoval');
+  const status = row.querySelector('.rowstatus');
+  const save = async () => {
+    status.textContent = 'Saving…';
+    try {
+      await post('/sitters/info', {id: row.dataset.id, value: input.value, who: who()});
+      status.textContent = 'Saved';
+      setTimeout(() => { status.textContent = ''; }, 1500);
+      recount(row.closest('.infosec'));
+    } catch (e) { status.textContent = 'Could not save: ' + e.message; }
+  };
+  input.addEventListener('change', save);
+});
+function recount(sec) {
+  const rows = sec.querySelectorAll('.inforow');
+  const filled = [...rows].filter(r => r.querySelector('.infoval').value.trim()).length;
+  sec.querySelector('.infosec-head .muted').textContent = filled + ' of ' + rows.length;
+}
+document.querySelectorAll('.infoadd').forEach(f => f.addEventListener('submit', async e => {
+  e.preventDefault();
+  const sec = f.closest('.infosec');
+  const label = f.querySelector('.infoadd-label').value.trim();
+  if (!label) return;
+  try {
+    await post('/sitters/info', {section: sec.dataset.section, label, who: who()});
+    location.reload();
+  } catch (err) { f.querySelector('.infoadd-label').value = 'Could not add: ' + err.message; }
+}));
+</script>
+{% endblock %}

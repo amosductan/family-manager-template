@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Trips — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">The next one up front, every past one kept</div>
+<h1>Trips</h1>
+
+{% if request.args.get('error') %}<div class="card"><p class="small" style="color:var(--err)">{{ request.args.get('error') }}</p></div>{% endif %}
+
+<h2>Coming up</h2>
+{% if upcoming %}
+<div class="tripgrid">
+  {% for t in upcoming %}
+  <a class="card tripcard" href="/trip/{{ t.slug }}">
+    <div class="tc-when">{{ t.range }}{% if t.days_until is not none %} · {% if t.days_until == 0 %}today{% elif t.days_until < 0 %}happening now{% else %}in {{ t.days_until }} day{{ 's' if t.days_until != 1 }}{% endif %}{% endif %}</div>
+    <div class="tc-name">{{ t.name }}</div>
+    <div class="tc-sub">{{ t.destination }}{% if t.party %} · {{ t.party }}{% endif %}</div>
+    <div class="tc-facts small muted">{{ t.n_items }} item{{ 's' if t.n_items != 1 }}{% if t.n_todo %} · {{ t.n_todo }} still to book{% endif %}{% if t.n_expenses %} · {{ t.n_expenses }} expense line{{ 's' if t.n_expenses != 1 }}{% endif %}</div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="small muted">Nothing planned. Start the next one below — the page is ready the moment it has dates.</p></div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Start the next trip</h2>
+  <form method="post" action="/trips/new">
+    <input type="hidden" name="who" class="who-field">
+    <div class="formgrid">
+      <label>Name<input name="name" required placeholder="Cape May"></label>
+      <label>Where<input name="destination" placeholder="The lake house"></label>
+      <label>First day<input name="start_date" type="date" required></label>
+      <label>Last day<input name="end_date" type="date" required></label>
+      <label>Who's going<input name="party" value="{{ (PARENTS + KIDS)|join(', ') }}"></label>
+    </div>
+    <div style="margin-top:10px"><label>Notes<input name="notes" placeholder="what's already booked, what's open"></label></div>
+    <div style="margin-top:12px"><button class="btn" type="submit">Create the trip</button>
+      <span class="small muted" style="margin-left:10px">Then add flights, the stay and ideas on its page. Confirmation emails still need to be added by hand.</span></div>
+  </form>
+</div>
+
+<h2>Past trips</h2>
+{% if past %}
+<div class="card">
+  {% for t in past %}
+  <div class="srcrow">
+    <div class="name"><a href="/trip/{{ t.slug }}">{{ t.name }}</a><div class="sub">{{ t.range }} · {{ t.destination }}</div></div>
+    <span class="small muted">{{ t.n_items }} item{{ 's' if t.n_items != 1 }}</span>
+    <a class="btn ghost small" href="/trip/{{ t.slug }}/expenses">What it cost</a>
+    <a class="btn ghost small" href="/trip/{{ t.slug }}.xlsx"><svg class="icon"><use href="#ic-download"/></svg> Spreadsheet</a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="small muted">No trip has finished yet.</p></div>
+{% endif %}
+
+<style>
+.tripgrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-bottom:18px; }
+.tripcard { display:block; text-decoration:none; color:inherit; }
+.tripcard:hover { border-color: var(--accent); }
+.tc-when { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--accent); margin-bottom:4px; }
+.tc-name { font-family:var(--serif); font-size:24px; font-weight:300; }
+.tc-sub { color:var(--muted); font-size:13.5px; margin-top:2px; }
+.tc-facts { margin-top:8px; }
+</style>
+{% endblock %}

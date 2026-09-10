@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Checklist — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">Shared between both parents</div>
+<h1>Checklist</h1>
+
+<div class="card">
+  <div class="cl-top">
+    <div class="statrow">
+      <div class="stat"><div class="num">{{ totals.open }}</div><div class="lbl">To do</div></div>
+      <div class="stat"><div class="num">{{ totals.done }}</div><div class="lbl">Done</div></div>
+      <div class="stat"><div class="num">{{ totals.blocked }}</div><div class="lbl">Blocked</div></div>
+    </div>
+    <div class="cl-who">
+      <label class="small muted" for="who">I am</label>
+      <select id="who" onchange="setWho(this.value)">
+        <option value="">— pick —</option>
+        {% for p in PARENTS %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+      </select>
+      <a class="btn ghost small" href="/checklist.xlsx">
+        <svg class="icon"><use href="#ic-download"></use></svg> Spreadsheet
+      </a>
+    </div>
+  </div>
+  <div id="who-warn" class="small" style="display:none;color:var(--warn);margin-top:8px">
+    Pick who you are first — otherwise the other parent can't tell who ticked it.
+  </div>
+</div>
+
+{% for g in groups %}
+<div class="card">
+  <div class="cl-head">
+    <h2 style="margin:0">
+      <span class="chip {{ (g.kid)|kid_class }}">{{ g.kid }}</span>
+      {{ g.category|capitalize }}
+    </h2>
+    <div class="small muted">
+      {{ g.done }} of {{ g.total }} done{% if g.blocked %} · {{ g.blocked }} blocked{% endif %}
+    </div>
+  </div>
+  <div class="cl-bar"><div class="cl-fill" style="width: {{ (100 * g.done / g.total)|round(0, 'floor') }}%"></div></div>
+
+  {% for i in g.entries %}
+  <div class="cl-item {{ 'is-done' if i.status == 'done' }} {{ 'is-blocked' if i.status == 'blocked' }}"
+       id="item-{{ i.id }}">
+    <button class="cl-box" onclick="toggle({{ i.id }})"
+            {% if i.status == 'blocked' %}disabled title="{{ i.blocked_on }}"{% endif %}
+            aria-label="Mark {{ i.title }} done">
+      <svg class="icon"><use href="#ic-{{ 'check' if i.status == 'done' else ('lock' if i.status == 'blocked' else 'square') }}"></use></svg>
+    </button>
+    <div class="cl-body">
+      <div class="cl-title">{{ i.title }}</div>
+      {% if i.detail %}<div class="small muted">{{ i.detail }}</div>{% endif %}
+      {% if i.status == 'blocked' and i.blocked_on %}
+      <div class="small" style="color:var(--warn)">Blocked: {{ i.blocked_on }}</div>
+      {% endif %}
+      {% if i.source %}<div class="cl-src small muted">{{ i.source }}</div>{% endif %}
+    </div>
+    <div class="cl-meta small muted">
+      {% if i.due_date %}<div class="cl-due">by {{ i.due_date }}</div>{% endif %}
+      <div class="cl-stamp">{% if i.status == 'done' and i.done_by %}{{ i.done_by }} · {{ i.done_at[:10] }}{% elif i.status == 'done' %}done{% endif %}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<div class="card">
+  <h2 style="margin-top:0">Add an item</h2>
+  <form method="post" action="/checklist/add">
+    <div class="formgrid">
+      <label>Item<input name="title" required></label>
+      <label>Kid<select name="kid">{% for k in kids %}<option>{{ k }}</option>{% endfor %}</select></label>
+      <label>Category<select name="category">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></label>
+      <label>Due<input name="due_date" type="date"></label>
+    </div>
+    <div style="margin-top:10px"><label>Detail<input name="detail"></label></div>
+    <div style="margin-top:12px"><button class="btn" type="submit">Add</button></div>
+  </form>
+</div>
+
+<style>
+.cl-top { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; flex-wrap:wrap; }
+.cl-who { display:flex; align-items:center; gap:8px; }
+.cl-who select { width:auto; }
+.cl-head { display:flex; justify-content:space-between; align-items:baseline; gap:14px; margin-bottom:8px; }
+.cl-bar { height:3px; background:var(--line); border-radius:2px; overflow:hidden; margin-bottom:10px; }
+.cl-fill { height:100%; background:var(--accent); transition:width .25s ease; }
+.cl-item { display:flex; gap:12px; align-items:flex-start; padding:9px 0; }
+.cl-item + .cl-item { border-top:1px dashed var(--line); }
+.cl-box { flex:none; width:26px; height:26px; padding:0; display:grid; place-items:center;
+          border:1px solid var(--line); border-radius:5px; background:#fff; cursor:pointer; color:var(--muted); }
+.cl-box:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.cl-box:disabled { cursor:not-allowed; opacity:.55; }
+.cl-body { flex:1; min-width:0; }
+.cl-title { line-height:1.35; }
+.cl-src { margin-top:3px; font-size:11.5px; opacity:.75; }
+.cl-meta { flex:none; text-align:right; min-width:104px; }
+.cl-stamp { font-size:11.5px; }
+.is-done .cl-title { text-decoration:line-through; color:var(--muted); }
+.is-done .cl-box { border-color:var(--ok); color:var(--ok); background:var(--ok-soft); }
+.is-blocked .cl-title { color:var(--muted); }
+@media (max-width: 720px) {
+  .cl-top { align-items:flex-start; gap:12px; }
+  .cl-who { flex-wrap:wrap; }
+  .cl-head { flex-wrap:wrap; gap:2px 12px; }
+  .cl-item { flex-wrap:wrap; gap:10px 10px; padding:11px 0; }
+  .cl-box { width:32px; height:32px; }        /* a tick is the main action here — thumb-sized */
+  /* The due date and the who/when stamp drop under the item rather than squeezing
+     the title into a two-word column. */
+  .cl-meta { flex:1 1 100%; min-width:0; text-align:left; margin-left:42px;
+             display:flex; gap:10px; }
+}
+</style>
+
+<script>
+function setWho(v) {
+  localStorage.setItem('fm_who', v);
+  document.getElementById('who-warn').style.display = v ? 'none' : 'block';
+}
+(function () {
+  const v = localStorage.getItem('fm_who') || '';
+  document.getElementById('who').value = v;
+})();
+
+async function toggle(id) {
+  const who = localStorage.getItem('fm_who') || '';
+  if (!who) {
+    document.getElementById('who-warn').style.display = 'block';
+    document.getElementById('who').focus();
+    return;
+  }
+  const el = document.getElementById('item-' + id);
+  const box = el.querySelector('.cl-box');
+  box.disabled = true;                       // no double-fire while in flight
+  const stamp = el.querySelector('.cl-stamp');
+  const before = stamp.textContent;
+  stamp.textContent = 'saving…';
+
+  try {
+    const res = await fetch('/checklist/toggle', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({id: id, who: who})
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      // A refusal has to say why, or the control reads as broken.
+      stamp.textContent = data.error === 'blocked' ? 'blocked' : 'failed';
+      alert(data.error === 'blocked'
+        ? 'Still blocked: ' + (data.blocked_on || 'see the note on this item')
+        : 'Could not save: ' + (data.error || res.status));
+      return;
+    }
+    const done = data.status === 'done';
+    el.classList.toggle('is-done', done);
+    box.querySelector('use').setAttribute('href', done ? '#ic-check' : '#ic-square');
+    stamp.textContent = done ? (data.done_by + ' · ' + data.done_at.slice(0, 10)) : '';
+    recount();
+  } catch (err) {
+    stamp.textContent = before;
+    alert('Could not save — is the app still reachable? (' + err + ')');
+  } finally {
+    box.disabled = false;
+  }
+}
+
+function recount() {
+  document.querySelectorAll('.card').forEach(card => {
+    const items = card.querySelectorAll('.cl-item');
+    if (!items.length) return;
+    const done = card.querySelectorAll('.cl-item.is-done').length;
+    const blocked = card.querySelectorAll('.cl-item.is-blocked').length;
+    const fill = card.querySelector('.cl-fill');
+    if (fill) fill.style.width = (100 * done / items.length) + '%';
+    const meta = card.querySelector('.cl-head .muted');
+    if (meta) meta.textContent = done + ' of ' + items.length + ' done'
+      + (blocked ? ' · ' + blocked + ' blocked' : '');
+  });
+  const all = document.querySelectorAll('.cl-item');
+  const done = document.querySelectorAll('.cl-item.is-done').length;
+  const blocked = document.querySelectorAll('.cl-item.is-blocked').length;
+  const nums = document.querySelectorAll('.statrow .num');
+  if (nums.length === 3) {
+    nums[0].textContent = all.length - done - blocked;
+    nums[1].textContent = done;
+    nums[2].textContent = blocked;
+  }
+}
+</script>
+{% endblock %}

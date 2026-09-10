@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{# "with context" is required: without it a macro cannot see TYPE_LABELS/CAT_LABELS from
+   the context processor, and the page 500s on the first row it renders. #}
+{% from "_macros.html" import event_row, category_filter with context %}
+{% block content %}
+<link rel="stylesheet" href="/static/household.css">
+<div class="eyebrow">{{ FAMILY_NAME }}</div>
+<div class="hh-heading"><div><h1>A little less on your mind.</h1><p class="hh-intro">Today’s logistics, tomorrow’s preparation, and the things to settle together.</p></div><a class="btn ghost" href="/weekly-review">Review the week</a></div>
+
+<section class="hh-hero"><div class="eyebrow">{{ today | nice_date }}</div><h2>Today, at a glance</h2>
+{% for e in today_events %}<div class="hh-line"><b>{% if e.start_time %}{{ e.start_time | clock }} · {% endif %}{{ e.title }}</b>{% if e.category == 'kids_school' %}<span class="small"> · {{ e.kid or 'Kids' }}</span>{% endif %}</div>
+{% else %}<p>No events recorded for today. <a href="/events">Check the calendar</a>.</p>{% endfor %}
+</section>
+<div class="hh-grid"><a class="hh-metric" href="/actions"><strong>{{ action_counts.open }}</strong><span>shared actions</span></a><a class="hh-metric" href="/days-off"><strong>{{ action_counts.coverage }}</strong><span>coverage days to confirm</span></a><a class="hh-metric" href="/actions?view=review"><strong>{{ action_counts.review }}</strong><span>older asks to settle</span></a></div>
+
+<style>
+  /* Phone: the box takes the whole first row; Speak and Ask share the second, equal width.
+     Otherwise Ask wraps alone under the box and reads as an afterthought. */
+  #home-ask input[type=text] { flex: 1 1 220px; }
+  @media (max-width: 720px) {
+    #home-ask input[type=text] { flex-basis: 100%; }
+    #home-ask .btn { flex: 1 1 0; justify-content: center; }
+  }
+</style>
+<form class="askbox" id="home-ask" action="/ask" method="get" style="display:flex; gap:8px; margin:0 0 16px; flex-wrap:wrap">
+  <input type="text" name="q" id="home-q" placeholder="Ask anything: what time is back to school night?" maxlength="500" required
+         style="min-width:0; font:inherit; font-size:15px; padding:9px 12px; border:1px solid var(--line); border-radius:6px; background:#fff">
+  <button class="btn ghost" type="button" id="home-mic" onclick="homeMic()" title="Speak your question" hidden
+          style="display:inline-flex; align-items:center; gap:6px; padding:9px 12px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+    <span id="home-mic-label">Speak</span>
+  </button>
+  <button class="btn" type="submit">Ask</button>
+</form>
+<script>
+// Same speech engine as /ask: the browser's own. What it hears goes into the box and the
+// form submits to /ask, which starts the question on arrival. Hidden where unsupported.
+(function () {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn = document.getElementById('home-mic');
+  if (!SR || !btn) return;
+  btn.hidden = false;
+  let rec = null, listening = false;
+  window.homeMic = function () {
+    if (listening) { rec && rec.stop(); return; }
+    rec = new SR();
+    rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+    const q = document.getElementById('home-q'), lbl = document.getElementById('home-mic-label');
+    let finalText = '';
+    rec.onstart = () => { listening = true; lbl.textContent = 'Listening'; btn.style.borderColor = 'var(--err)'; btn.style.color = 'var(--err)'; q.value = ''; q.placeholder = 'Listening…'; };
+    rec.onresult = (ev) => {
+      let interim = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) finalText += ev.results[i][0].transcript; else interim += ev.results[i][0].transcript;
+      }
+      q.value = (finalText + ' ' + interim).trim();
+    };
+    rec.onerror = (ev) => { q.placeholder = ev.error === 'not-allowed' ? 'Microphone blocked — allow it in the browser' : ('Speech stopped: ' + ev.error); };
+    rec.onend = () => {
+      listening = false; lbl.textContent = 'Speak'; btn.style.borderColor = ''; btn.style.color = '';
+      q.placeholder = 'Ask anything: what time is back to school night?';
+      if (finalText.trim().length >= 3) { q.value = finalText.trim(); document.getElementById('home-ask').submit(); }
+    };
+    try { rec.start(); } catch (e) { q.placeholder = 'Could not start listening'; }
+  };
+})();
+</script>
+
+{% if trip %}
+{% if trip_media and trip_media.banner %}
+{# The trip is the biggest thing on the family's horizon, so within its 30-day window
+   the banner looks like the trip, not like another row of furniture. #}
+<a class="tripbanner" href="/trip/{{ trip.slug }}"
+   style="background-image: linear-gradient(90deg, rgba(13,31,41,.72) 0%, rgba(13,31,41,.38) 55%, rgba(13,31,41,.12) 100%), url('{{ trip_media.banner }}')">
+  <div class="tb-main">
+    <div class="tb-name">{{ trip.name }}</div>
+    <div class="tb-sub">
+      {% if trip_days > 0 %}{{ trip_days }} day{{ '' if trip_days == 1 else 's' }} away{% elif trip_days == 0 %}today{% else %}happening now{% endif %}
+      {%- if trip_open %} · {{ trip_open }} thing{{ '' if trip_open == 1 else 's' }} still unsettled{% endif %}
+    </div>
+  </div>
+  <span class="tb-cta">Open the itinerary</span>
+</a>
+{% else %}
+<div class="card" style="border-left:3px solid var(--accent)">
+  <div class="trip-hero">
+    <div class="where">
+      <div><a href="/trip/{{ trip.slug }}" style="text-decoration:none"><b>{{ trip.name }}</b></a>
+        <span class="small muted">· {{ trip.start_date }} → {{ trip.end_date }}</span></div>
+      <div class="small muted">
+        {% if trip_days > 0 %}{{ trip_days }} days away{% elif trip_days == 0 %}today{% else %}happening now{% endif %}
+        {%- if trip_open %} · <span style="color:var(--warn)">{{ trip_open }} thing{{ '' if trip_open == 1 else 's' }} still unsettled</span>{% endif %}
+      </div>
+    </div>
+    <a class="btn ghost small" href="/trip/{{ trip.slug }}">Open the itinerary</a>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+{% if gathering %}
+{# The next thing the house is hosting, inside its 60-day window: one line, the open
+   count and the RSVP tally, so whichever parent lands here sees what is still owed. #}
+<div class="card" style="border-left:3px solid var(--accent)">
+  <div class="trip-hero">
+    <div class="where">
+      <div><a href="/gathering/{{ gathering.slug }}" style="text-decoration:none"><b>{{ gathering.name }}</b></a>
+        <span class="small muted">· {% if gathering.date_set %}{{ gathering.event_date | nice_date }}{% if gathering.start_time %} {{ gathering.start_time | clock }}{% endif %}{% else %}date not picked yet{% endif %}</span></div>
+      <div class="small muted">
+        {% if gathering.days_until > 0 %}{{ gathering.days_until }} day{{ 's' if gathering.days_until != 1 }} away{% elif gathering.days_until == 0 %}today{% else %}happening now{% endif %}
+        {%- if gathering.n_open %} · <span style="color:var(--warn)">{{ gathering.n_open }} thing{{ '' if gathering.n_open == 1 else 's' }} still open</span>{% endif %}
+        {%- if gathering.n_invited %} · {{ gathering.n_yes }} of {{ gathering.n_invited }} said yes{% if gathering.n_no_reply %}, {{ gathering.n_no_reply }} no reply{% endif %}{% endif %}
+      </div>
+    </div>
+    <a class="btn ghost small" href="/gathering/{{ gathering.slug }}">Open the plan</a>
+  </div>
+</div>
+{% endif %}
+
+{% if needs_you %}
+<div class="card" style="border-left:3px solid var(--warn)">
+  <h2 style="margin-top:0">A few things to settle</h2>
+  {% for a in needs_you %}
+  <div style="padding:7px 0; border-bottom:1px dashed var(--line)">
+    <div>{{ a.title }}</div>
+    <div class="small muted">
+      <span>{{ a.owner or 'Unassigned' }}</span> · {{ a.source }}
+      {% if a.due %} · {{ 'past due' if a.overdue else 'due' }} {{ a.due }}{% endif %} · <a href="{{ a.href }}">open source</a>
+    </div>
+  </div>
+  {% endfor %}
+  <a href="/actions" class="btn ghost small" style="margin-top:12px">Open shared actions</a>
+</div>
+{% endif %}
+
+{% if payment_changes %}<div class="card"><h2 style="margin-top:0">Payments are changing</h2>{% for p in payment_changes %}<div class="hh-line"><a href="/payment-plans#payment-{{ p.id }}">{{ p.name }}</a><p class="small muted">{% if p.ends %}Ends {{ p.ends }}. {% endif %}{% if p.change_date %}Price changes {{ p.change_date }}. {% endif %}{% if p.starts %}Starts {{ p.starts }}. {% endif %}{{ p.change_note or '' }}</p></div>{% endfor %}</div>{% endif %}
+
+{% if school_today %}
+<div class="card">
+  {% for l in school_today %}
+  <div class="small" {% if not loop.first %}style="margin-top:4px"{% endif %}>
+    <b>{{ l.kid }} at school</b> —
+    {% if l.today %}today: {% for r in l.today %}<b>{{ r.label }}</b>{% if r.note %} ({{ r.note }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}{% else %}today: <span class="muted">nothing listed</span>{% endif %}
+    {% if l.tomorrow %} · {{ l.tomorrow_name|lower }}: {% for r in l.tomorrow %}<b>{{ r.label }}</b>{% if r.note %} ({{ r.note }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
+    · <a href="/kid/{{ l.kid }}#week">the week</a>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="grid cols-2">
+  <div>
+    <div class="card">
+      {{ category_filter(chips) }}
+      {% if groups %}
+        {% for g in groups %}
+        <div class="daygroup">
+          <div class="daydate {{ 'today' if g.is_today }}">{{ g.display }}{{ ' — today' if g.is_today }}</div>
+          {% for e in g.events %}{{ event_row(e, show_source=True) }}{% endfor %}
+        </div>
+        {% endfor %}
+      {% else %}
+        {# A filter that hides everything must say so, or an empty card reads as a broken
+           app rather than a narrow view. #}
+        <p class="muted">{% if chips[0].on %}Nothing on the radar for the next three weeks.
+          {% else %}Nothing in the categories you picked. <a href="{{ chips[0].href }}">Show all</a>.{% endif %}</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0"><svg class="icon"><use href="#ic-mail"/></svg> Latest newsletters</h2>
+      {% for kid in kids %}
+        {% set nl = latest_nl[kid] %}
+        <div class="srcrow">
+          <span class="chip {{ (kid)|kid_class }}">{{ kid }}</span>
+          {% if nl %}
+            <span class="name">{{ nl.subject or nl.label }}</span>
+            <span class="sub">{{ nl.nl_date }}</span>
+          {% else %}
+            <span class="name muted">None yet</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2 style="margin-top:0"><svg class="icon"><use href="#ic-refresh"/></svg> Sources</h2>
+      {% for s in sources %}
+      <div class="srcrow">
+        <div class="name">{{ s.row.name }}<div class="sub">{{ s.label }}</div></div>
+        <span class="chip s-{{ s.status }}">{{ s.status }}</span>
+      </div>
+      {% endfor %}
+      <div style="margin-top:14px">
+        <form method="post" action="/scan/run" style="display:inline"><button class="btn" type="submit">Scan everything</button></form>
+        <button class="btn ghost" id="ingest-btn" onclick="runIngest()">Mail only</button>
+        <div class="small muted" style="margin-top:8px">Scan everything = mail and the calendar, with what came in on the <a href="/scan">Scan</a> page.</div>
+        <div id="ingest-bar">
+          <span id="ingest-stage">Starting…</span>
+          <div class="track"><div class="fill"></div></div>
+        </div>
+        <div id="ingest-done" class="small muted" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0"><svg class="icon"><use href="#ic-card"/></svg> Payments</h2>
+      {% if due_soon %}
+        <div class="small" style="margin-bottom:8px"><strong>Due within 30 days:</strong></div>
+        {% for p in due_soon %}
+        <div class="srcrow">
+          <span class="chip {{ (p.kid)|kid_class }}">{{ p.kid }}</span>
+          <span class="name">{{ p.name }}</span>
+          <span class="sub">{{ p.next_due }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="small muted">Nothing due in the next 30 days.</p>
+      {% endif %}
+      {% if tbd %}
+      <p class="small" style="margin-top:10px; color: var(--warn)">
+        {{ tbd|length }} payment{{ 's' if tbd|length != 1 }} missing an amount —
+        <a href="/payments">fill in the registry</a>.
+      </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+function runIngest() {
+  const btn = document.getElementById('ingest-btn');
+  btn.disabled = true;
+  document.getElementById('ingest-bar').style.display = 'block';
+  fetch('/ingest/run', {method: 'POST'}).then(() => poll());
+}
+function poll() {
+  fetch('/ingest/status').then(r => r.json()).then(s => {
+    document.getElementById('ingest-stage').textContent = s.stage || 'Working…';
+    if (s.running === false && s.stage && s.stage !== 'starting') {
+      document.getElementById('ingest-bar').style.display = 'none';
+      document.getElementById('ingest-done').textContent = s.summary || 'Done.';
+      document.getElementById('ingest-btn').disabled = false;
+      if (s.ok) setTimeout(() => location.reload(), 1200);
+    } else {
+      setTimeout(poll, 1500);
+    }
+  }).catch(() => setTimeout(poll, 2500));
+}
+</script>
+{% endblock %}

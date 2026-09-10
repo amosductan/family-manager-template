@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}Shared actions — Family Manager{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/household.css">
+<div class="hh-heading"><div><div class="eyebrow">A little less to hold in your head</div><h1>Shared actions</h1>
+<p class="hh-intro">One place to see what needs doing, take responsibility, and close the loop.</p></div>
+<a class="btn ghost" href="/weekly-review">Review the week</a></div>
+<div class="hh-toolbar">
+{% for key,label in [('open','To do'),('review','Needs a decision'),('later','Remind later'),('handled','Handled')] %}
+<a class="catchip {{ 'on' if view == key }}" href="{{ url_for('household.actions', view=key, owner=selected) }}">{{ label }} · {{ counts[key] }}</a>
+{% endfor %}
+<form method="get"><input type="hidden" name="view" value="{{ view }}"><label class="small">Assigned to
+<select name="owner" onchange="this.form.submit()"><option value="">Everyone</option>{% for person in PARENTS + ['Unassigned'] %}<option {{ 'selected' if selected == person }}>{{ person }}</option>{% endfor %}</select></label></form>
+</div>
+{% if view == 'review' %}<p class="hh-notice">Old does not always mean finished. Keep what still matters, record what you handled, or set aside what no longer applies. “Still needed” clears this review flag for seven days.</p>{% endif %}
+<div class="hh-list">
+{% for t in tasks %}
+<article class="hh-task {{ 'review' if t.review }}" data-task-key="{{ t.key }}">
+<div class="hh-meta"><span>{{ t.source }}</span>{% if t.kid %}<span>{{ t.kid }}</span>{% endif %}<span>{{ t.owner or 'Unassigned' }}</span></div>
+<h2>{{ t.title }}</h2>
+<div class="hh-meta">{% if t.due %}<span>{{ 'Past due' if t.overdue else 'Due' }} {{ t.due | nice_date }}</span>{% endif %}
+{% if t.snoozed %}<span>Returns {{ t.snooze_until | nice_date }}</span>{% endif %}
+{% if t.stage == 'waiting' and t.state == 'open' %}<span>Waiting on someone</span>{% endif %}
+{% if t.state != 'open' %}<span>{{ 'Done' if t.state == 'done' else 'No longer needed' }}</span>{% endif %}
+<a href="{{ t.href }}">Open source</a></div>
+{% if t.blocked %}<p class="hh-notice">Blocked: {{ t.blocked }}</p>{% endif %}
+<div class="hh-buttons" style="margin-top:12px">
+{% if t.state == 'open' %}
+<button class="btn ghost small" data-hh-action="claim">I’ve got this</button>
+{% if t.key.startswith('coverage:') %}<a class="btn small" href="/days-off">Arrange coverage</a>
+{% else %}<button class="btn small" data-hh-action="done" {{ 'disabled' if t.blocked }}>{{ 'Already handled' if view == 'review' else 'Done' }}</button>{% endif %}
+{% if view == 'review' %}<button class="btn ghost small" data-hh-action="review">Still needed</button>{% endif %}
+{% else %}{% if not t.key.startswith('coverage:') %}<button class="btn ghost small" data-hh-action="reopen">Reopen</button>{% endif %}{% endif %}
+<button class="btn ghost small" data-hh-action="undo">Undo last change</button>
+</div>
+{% if t.state == 'open' %}<details><summary>Assign, wait, or remind later</summary><div class="hh-buttons">
+<label class="small">Owner <select data-owner><option value="">Unassigned</option>{% for p in PARENTS %}<option {{ 'selected' if t.owner == p }}>{{ p }}</option>{% endfor %}</select></label>
+<button class="btn ghost small" data-hh-action="owner">Assign</button>
+<button class="btn ghost small" data-hh-action="{{ 'ready' if t.stage == 'waiting' else 'waiting' }}">{{ 'Ready to act' if t.stage == 'waiting' else 'Waiting' }}</button>
+<label class="small">Remind on <input type="date" data-until value="{{ t.snooze_until or '' }}"></label><button class="btn ghost small" data-hh-action="snooze">Remind later</button>
+{% if t.snoozed %}<button class="btn ghost small" data-hh-action="ready">Bring back now</button>{% endif %}
+{% if not t.key.startswith('coverage:') %}<button class="btn ghost small" data-hh-action="dismiss">No longer relevant</button>{% endif %}
+</div></details>{% endif %}
+<span class="hh-status" role="status" aria-live="polite"></span>
+</article>
+{% else %}<div class="hh-empty">Nothing in this view. <a href="/actions">See all current actions</a>.</div>{% endfor %}
+</div>
+{% if pages > 1 %}<nav class="hh-toolbar" aria-label="Action pages" style="margin-top:20px">
+{% if page > 1 %}<a class="btn ghost" href="{{ url_for('household.actions',view=view,owner=selected,page=page-1) }}">Previous</a>{% endif %}
+<span class="small muted">Page {{ page }} of {{ pages }} · {{ total }} actions</span>
+{% if page < pages %}<a class="btn ghost" href="{{ url_for('household.actions',view=view,owner=selected,page=page+1) }}">Next</a>{% endif %}</nav>{% endif %}
+<script src="/static/household.js"></script>
+{% endblock %}

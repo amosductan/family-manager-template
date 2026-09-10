@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}How far apart — {{ trip.name }}{% endblock %}
+
+{# The logistics sheet. Three questions, in the order they actually get asked:
+   1. how far is each thing from where we are sleeping,
+   2. how much driving is each day,
+   3. and if we do A then B, how far apart are they.
+
+   Every number here is a real driving route, not a straight line. Anything that could
+   not be measured says so in words and is counted by name -- a distance table that
+   quietly drops the rows it could not place reads as a complete picture of the trip,
+   which is exactly how you end up with a 90-minute drive penciled into an afternoon. #}
+
+{% macro drivecell(d) %}
+  {%- if d is none %}<span class="soft">not measured</span>
+  {%- elif d.source == 'same' %}<span class="soft">—</span>
+  {%- else %}<b>{{ geo.fmt_mins(d.seconds) }}</b><span class="km">{{ geo.fmt_km(d.meters) }}</span>
+  {%- endif -%}
+{% endmacro %}
+
+{% block content %}
+<div class="card">
+  <h1 style="margin:0 0 4px">How far apart</h1>
+  <p class="small muted" style="margin:0">{{ trip.name }}{% if date_range %} · {{ date_range }}{% endif %} · driving times and distances.</p>
+</div>
+
+{% if not base %}
+{# The refusal that is the point. Measuring from "whichever row came first" would put a
+   confident wrong number against every item on the page. #}
+<div class="card openbox">
+  <strong>No home base is set yet.</strong>
+  <p class="small" style="margin:6px 0 0">Nothing is marked as where you're sleeping, so nothing is measured yet. Run <code>python seed_trip.py</code>, then Refresh.</p>
+</div>
+{% else %}
+
+<div class="card">
+  <div class="modebar" style="margin:0">
+    <div>
+      <div class="lbl">Measured from</div>
+      <div class="val" style="font-size:1rem">{{ base.title }}</div>
+      {% if base.location %}<div class="small muted">{{ base.location }}</div>{% endif %}
+    </div>
+    <div class="spacer"></div>
+    <form method="post" action="/trip/{{ trip.slug }}/geo">
+      <button class="btn ghost small" type="submit"
+              onclick="this.disabled=true;this.textContent='Looking up… this takes about a minute';this.form.submit()">
+        Refresh distances
+      </button>
+    </form>
+  </div>
+  <p class="small muted" style="margin:8px 0 0">Lookups are cached. Refresh after adding somewhere new.</p>
+</div>
+
+{# ------------------------------------------------------------- from the base #}
+<div class="card">
+  <h2>From the base</h2>
+  <p class="small muted">Sorted by drive time.</p>
+  <div class="tablewrap">
+  <table class="table">
+    <thead><tr><th>Place</th><th>Drive</th><th>Distance</th><th></th></tr></thead>
+    <tbody>
+    {% for p in places
+       | sort(attribute='id')
+       | sort(attribute='title') %}
+      {% if p.id != base.id %}
+      <tr>
+        <td data-label="Place">
+          <b>{{ p.title }}</b>
+          {% if p.location %}<div class="small muted">{{ p.location }}</div>{% endif %}
+        </td>
+        <td data-label="Drive">{% if from_base.get(p.id) %}{{ geo.fmt_mins(from_base[p.id].seconds) }}{% else %}<span class="soft">not measured</span>{% endif %}</td>
+        <td data-label="Distance">{% if from_base.get(p.id) %}{{ geo.fmt_km(from_base[p.id].meters) }}{% else %}<span class="soft">—</span>{% endif %}</td>
+        <td data-label="">
+          <a class="mini" target="_blank" rel="noopener"
+             href="https://www.google.com/maps/dir/?api=1&origin={{ base.lat }},{{ base.lng }}&destination={{ p.lat }},{{ p.lng }}">Directions</a>
+        </td>
+      </tr>
+      {% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{# ------------------------------------------------------------------ day by day #}
+{% if legs_by_day %}
+<div class="card">
+  <h2>Driving, day by day</h2>
+  <p class="small muted">Base out and back, in the day's order.</p>
+  {% for day, info in legs_by_day | dictsort %}
+    {% if info.legs %}
+    <div class="dayblock">
+      <h3>{{ day }}
+        {% if info.total_seconds is not none %}
+        <span class="chip tag">{{ geo.fmt_mins(info.total_seconds) }} driving{% if info.unmeasured %}, plus {{ info.unmeasured }} leg{{ '' if info.unmeasured == 1 else 's' }} nobody could measure{% endif %}</span>
+        {% endif %}
+        {% if info.flown %}<span class="chip tag soft">flights not counted: {{ info.flown | join(', ') | truncate(70, True) }}</span>{% endif %}
+      </h3>
+      <ol class="legs">
+        {% for leg in info.legs %}
+        <li>
+          <span class="legnames">{{ leg.from }} <span class="soft">→</span> {{ leg.to }}</span>
+          <span class="legtime">{{ drivecell(leg.drive) }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ---------------------------------------------------------------- the matrix #}
+<div class="card">
+  <h2>Between any two</h2>
+  <p class="small muted">Row is from, column is to.</p>
+  <div class="tablewrap">
+  <table class="table matrix">
+    <thead>
+      <tr><th>From \ To</th>
+        {% for p in places %}<th class="rot">{{ p.title | truncate(26, True) }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in matrix %}
+      <tr>
+        <th data-label="From">{{ m.row.title | truncate(34, True) }}</th>
+        {% for c in m.cells %}
+        <td data-label="{{ places[loop.index0].title | truncate(20, True) }}">{{ drivecell(c) }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% endif %}
+
+{# ------------------------------------------------- what could NOT be measured #}
+{% if not_driven %}
+<div class="card">
+  <h2>Not driven ({{ not_driven | length }})</h2>
+  <p class="small muted">Flights, or places beyond one. Left out of every driving number above.</p>
+  <ul class="whylist">
+    {% for r in not_driven %}
+    <li><b>{{ r.title }}</b>
+      <span class="soft">— {% if r.kind == 'flight' %}a flight{% else %}outside {{ country or 'the trip country' }}{% endif %}</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if unplaced %}
+<div class="card">
+  <h2>Not on the map ({{ unplaced | length }})</h2>
+  <p class="small muted">Each says what went wrong: a missing address, an address not found (usually a typo), or a failed lookup (press Refresh).</p>
+  <ul class="whylist">
+    {% for u in unplaced %}
+    <li><b>{{ u.row.title }}</b> <span class="soft">— {{ u.why }}</span>
+      {% if u.row.location %}<div class="small muted">tried: {{ u.row.geo_query or u.row.location }}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<style>
+  .tablewrap { overflow-x: auto; }
+  .table .km { display:block; font-size:.78rem; opacity:.65; }
+  .matrix th.rot { font-size:.72rem; font-weight:600; text-align:left; vertical-align:bottom; }
+  .matrix td, .matrix th { white-space:nowrap; }
+  .legs { list-style:none; margin:6px 0 0; padding:0; }
+  .legs li { display:flex; gap:10px; align-items:baseline; padding:5px 0;
+             border-bottom:1px solid rgba(128,128,128,.16); }
+  .legnames { flex:1 1 0; min-width:0; }
+  .legtime { flex:0 0 auto; text-align:right; }
+  .dayblock { margin-top:14px; }
+  .dayblock h3 { margin:0 0 2px; font-size:1rem; }
+  .whylist { margin:6px 0 0; padding-left:18px; }
+  .whylist li { padding:3px 0; }
+  .soft { opacity:.6; }
+  /* On a phone the matrix is the one thing that cannot stack -- a distance read against
+     the wrong column is worse than scrolling -- so it scrolls INSIDE its wrapper and the
+     page itself never moves sideways. */
+  @media (max-width: 720px) {
+    .legs li { flex-wrap:wrap; }
+    .legtime { flex:0 0 100%; text-align:left; }
+  }
+</style>
+{% endblock %}

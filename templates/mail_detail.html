@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}{{ e.subject }} — Family Manager{% endblock %}
+{% block content %}
+<div style="margin-bottom:10px"><a class="small muted" href="/mail">&larr; All mail</a></div>
+<div class="eyebrow">{{ e.source }} · {{ e.sent_date }} · {{ e.sender }}</div>
+<h1 style="margin-bottom:4px">{{ summary.headline or e.subject }}</h1>
+<div class="small muted" style="margin-bottom:16px">
+  <span class="chip {{ (e.kid or 'Both')|kid_class }}">{{ e.kid or 'Both' }}</span>
+  Subject: {{ e.subject }}
+  {% if summary._engine == 'deterministic' %}
+  · <span class="chip tag" title="{{ summary._note }}">summarized without the model</span>
+  {% endif %}
+</div>
+
+{% if summary._engine == 'pending' %}
+<div class="card" id="pending" style="border-left:3px solid var(--warn)">
+  <div id="brief-status"><b>Reading this note…</b> <span class="muted">the briefing usually lands within a minute. This page refreshes itself.</span></div>
+  <button class="btn ghost small" id="rebrief" hidden style="margin-top:8px">Try the briefing again</button>
+</div>
+{% elif summary._engine == 'deterministic' and e.source == 'pasted' %}
+<div class="card">
+  <div class="small muted">The model couldn’t run for this note ({{ summary._note }}), so only dates were pulled out — no action items.</div>
+  <button class="btn ghost small" id="rebrief" style="margin-top:8px">Try the briefing again</button>
+</div>
+{% endif %}
+
+{% if summary.what_it_is %}
+<div class="card">
+  <h2 style="margin-top:0"><svg class="icon"><use href="#ic-mail"/></svg> What this is</h2>
+  <ul style="margin:0 0 0 18px; line-height:1.6">
+    {% for b in summary.what_it_is %}<li>{{ b }}</li>{% endfor %}
+  </ul>
+  {% if summary.money %}
+  <div style="margin-top:10px">
+    {% for m in summary.money %}<span class="chip c-money" style="margin-right:6px">{{ m.what }}: {{ m.amount }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if actions %}
+<div class="card" style="border-left:3px solid var(--warn)">
+  <h2 style="margin-top:0"><svg class="icon"><use href="#ic-check"/></svg> Action items</h2>
+  {% for a in actions %}
+  <div class="action-row {{ 'done' if a.state != 'open' }}" data-id="{{ a.id }}">
+    <button class="btn ghost small act-done" title="{{ 'Reopen' if a.state != 'open' else 'Mark done' }}">
+      <svg class="icon"><use href="#ic-{{ 'check' if a.state != 'open' else 'square' }}"/></svg></button>
+    <div class="act-main">
+      <div>{{ a.text }}</div>
+      <div class="small muted">
+        <span class="chip {{ (a.kid)|kid_class }}">{{ a.kid }}</span>
+        {% if a.due %} · due {{ a.due }}{% endif %}
+        {% if a.state != 'open' %} · {{ a.state }}{% if a.done_by %} by {{ a.done_by }}{% endif %}{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if summary.dates %}
+<div class="card">
+  <h2 style="margin-top:0"><svg class="icon"><use href="#ic-calendar"/></svg> Dates</h2>
+  {% for d in summary.dates %}
+  <div class="date-row" data-date="{{ d.date }}" data-title="{{ d.title }}" data-kind="{{ d.kind or 'info' }}">
+    <div class="dr-when">{{ d.date }}</div>
+    <div class="dr-title">{{ d.title }}</div>
+    {% if (d.date, d.title) in ev_dates %}
+    <span class="chip s-ok">on the board</span>
+    {% else %}
+    <button class="btn ghost small add-date">Add to calendar</button>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0"><svg class="icon"><use href="#ic-download"/></svg> Documents &amp; links
+    ({{ docs|selectattr('status','equalto','ok')|list|length }} opened)</h2>
+  {% for d in docs %}
+  <div class="doc-row">
+    <div class="doc-main">
+      <div>
+        <strong>{{ d.name }}</strong>
+        <span class="chip tag">{{ d.kind }}</span>
+        {% if d.status.startswith('ok') %}<span class="chip s-ok">opened</span>
+        {% elif d.status.startswith('failed') %}<span class="chip s-missing" title="{{ d.status }}">couldn’t open</span>
+        {% else %}<span class="chip s-quiet" title="{{ d.status }}">skipped</span>{% endif %}
+      </div>
+      {% if d.kind == 'image' and d.saved_path %}
+      <a href="/mail/doc/{{ d.id }}" target="_blank" rel="noopener"><img src="/mail/doc/{{ d.id }}" alt="{{ d.name }}" style="max-width:240px; max-height:320px; margin-top:6px; border:1px solid var(--line); border-radius:4px"></a>
+      {% endif %}
+      {% if d.text %}
+      <details style="margin-top:4px">
+        <summary class="small muted">Read the text</summary>
+        <div class="details-body" style="white-space:pre-wrap; max-height:360px; overflow:auto">{{ d.text }}</div>
+      </details>
+      {% elif d.status.startswith('failed') %}
+      <div class="small muted">{{ d.status }}{% if d.final_url %} · <a href="{{ d.final_url }}" target="_blank" rel="noopener">try the link</a>{% endif %}</div>
+      {% endif %}
+    </div>
+    {% if d.saved_path %}
+    <a class="btn ghost small" href="/mail/doc/{{ d.id }}" target="_blank" rel="noopener">Open original</a>
+    {% elif d.url %}
+    <a class="btn ghost small" href="{{ d.url }}" target="_blank" rel="noopener">Link</a>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0"><svg class="icon"><use href="#ic-mail"/></svg> Full {{ 'note' if e.source == 'pasted' else 'email' }} &amp; document text</h2>
+  <details>
+    <summary class="small muted">Show everything that was read</summary>
+    <div class="details-body" style="white-space:pre-wrap; max-height:520px; overflow:auto; margin-top:8px">{{ e.body_text }}</div>
+  </details>
+</div>
+
+<style>
+.action-row { display:flex; gap:10px; padding:9px 0; border-bottom:1px dashed var(--line); }
+.action-row:last-child { border-bottom:0; }
+.action-row.done .act-main { opacity:.5; text-decoration:line-through; }
+.act-main { flex:1 1 0; min-width:0; }
+.date-row { display:flex; gap:12px; align-items:center; padding:8px 0; border-bottom:1px dashed var(--line); }
+.date-row:last-child { border-bottom:0; }
+.dr-when { flex:0 0 96px; font-variant-numeric:tabular-nums; color:var(--muted); }
+.dr-title { flex:1 1 0; min-width:0; }
+.doc-row { display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px dashed var(--line); }
+.doc-row:last-child { border-bottom:0; }
+.doc-main { flex:1 1 0; min-width:0; }
+.doc-main > div:first-child { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+@media (max-width:560px){ .dr-when{ flex-basis:74px; font-size:12px; } .doc-row{ flex-direction:column; } }
+</style>
+
+<script>
+function who(){ return localStorage.getItem('fm_who') || ''; }
+document.querySelectorAll('.act-done').forEach(function(b){
+  b.addEventListener('click', function(){
+    var row = b.closest('.action-row'), id = row.dataset.id;
+    var done = row.classList.contains('done');
+    fetch('/mail/action', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id:id, action: done?'reopen':'done', who:who()})})
+      .then(function(){ location.reload(); });
+  });
+});
+// A note's briefing runs after the page loads: poll until it lands, and if the worker died
+// (nothing for six minutes) say so and offer a retry rather than spinning forever.
+(function(){
+  var st = document.getElementById('brief-status'), rb = document.getElementById('rebrief');
+  function poll(){
+    fetch('/mail/{{ e.id }}/status.json').then(function(r){return r.json();}).then(function(s){
+      if (s.ready){ location.reload(); return; }
+      if (s.stale){
+        if (st) st.innerHTML = '<b>The briefing didn’t finish.</b> <span class="muted">The model pass looks to have died — try it again.</span>';
+        if (rb) rb.hidden = false;
+        return;
+      }
+      setTimeout(poll, 2000);
+    }).catch(function(){ setTimeout(poll, 4000); });
+  }
+  if (st) poll();
+  if (rb) rb.addEventListener('click', function(){
+    rb.disabled = true; rb.textContent = 'Starting…';
+    fetch('/mail/{{ e.id }}/rebrief', {method:'POST'}).then(function(){ setTimeout(function(){ location.reload(); }, 800); });
+  });
+})();
+document.querySelectorAll('.add-date').forEach(function(b){
+  b.addEventListener('click', function(){
+    var row = b.closest('.date-row');
+    b.disabled = true; b.textContent = 'Adding…';
+    fetch('/mail/date/add', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({mail_id: {{ e.id }}, date: row.dataset.date,
+                            title: row.dataset.title, kind: row.dataset.kind})})
+      .then(function(r){return r.json();}).then(function(){
+        b.outerHTML = '<span class="chip s-ok">on the board</span>';
+      });
+  });
+});
+</script>
+{% endblock %}

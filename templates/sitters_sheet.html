@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sitter sheet — {{ FAMILY_NAME }}</title>
+<style>
+:root { --ink:#1d1a16; --accent:#C4974C; --muted:rgba(29,26,22,.55); --line:rgba(29,26,22,.14); }
+body { font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--ink); margin:0; padding:28px 22px; max-width:760px; }
+h1 { font-family:"Palatino Linotype",Palatino,Georgia,serif; font-weight:300; font-size:30px; margin:0 0 4px; }
+.sub { color:var(--muted); font-size:13px; margin-bottom:22px; }
+h2 { font-family:"Palatino Linotype",Palatino,Georgia,serif; font-weight:400; font-size:18px; margin:22px 0 6px; padding-bottom:4px; border-bottom:1px solid var(--accent); }
+.row { display:grid; grid-template-columns: minmax(140px, 34%) 1fr; gap:10px; padding:5px 0; border-bottom:1px dashed var(--line); font-size:14px; }
+.row .lbl { color:var(--muted); }
+.row .val { white-space:pre-wrap; }
+.tools { margin-bottom:16px; }
+.tools button { font:inherit; font-size:12px; text-transform:uppercase; letter-spacing:1.2px; padding:8px 14px; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:4px; cursor:pointer; }
+.empty { color:var(--muted); font-size:14px; }
+@media print { .tools { display:none; } body { padding:0; } }
+</style></head>
+<body>
+<div class="tools"><button onclick="window.print()">Print</button></div>
+<h1>Sitter sheet</h1>
+<div class="sub">{{ FAMILY_NAME }} · printed {{ today }}</div>
+{% for sec in sections %}
+<h2>{{ sec.section }}</h2>
+{% for r in sec.rows %}<div class="row"><span class="lbl">{{ r.label }}</span><span class="val">{{ r.value }}</span></div>{% endfor %}
+{% endfor %}
+{% if not sections %}<p class="empty">Nothing filled in yet — fill in the sheet on the Sitters page first.</p>{% endif %}
+</body></html>

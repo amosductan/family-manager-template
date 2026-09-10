@@ -1,0 +1,13 @@
+# Your family's data and secrets never leave this machine.
+data/
+.env
+logs/
+_backup/
+__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+.venv/
+venv/
+.DS_Store

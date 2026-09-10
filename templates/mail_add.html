@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Add a note — Family Manager{% endblock %}
+{% block content %}
+<div style="margin-bottom:10px"><a class="small muted" href="/mail">&larr; All mail</a></div>
+<div class="eyebrow">School &amp; family mail</div>
+<h1>Add a note that didn’t come by email</h1>
+<p class="muted" style="margin-bottom:14px">A class-app post, a backpack note, a teacher message. Paste the text or add a screenshot.</p>
+
+{% if error %}
+<div class="card" style="border-left:3px solid var(--err)"><b>{{ error }}</b></div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/mail/add" enctype="multipart/form-data" id="noteform">
+    <div class="formgrid">
+      <label>Kid
+        <select name="kid">
+          {% for k in kids %}<option {{ 'selected' if form.get('kid') == k }}>{{ k }}</option>{% endfor %}
+          <option {{ 'selected' if form.get('kid') == 'Both' }}>Both</option>
+        </select>
+      </label>
+      <label>Where it came from
+        <input name="sender" value="{{ form.get('sender', '') }}" placeholder="class app, backpack, teacher">
+      </label>
+      <label>Date
+        <input name="sent_date" type="date" value="{{ form.get('sent_date', today) }}">
+      </label>
+      <label>Title <span class="muted">(optional)</span>
+        <input name="title" value="{{ form.get('title', '') }}" placeholder="First line of the note if blank">
+      </label>
+    </div>
+    <div style="margin-top:12px">
+      <label>The note’s text
+        <textarea name="text" rows="10" placeholder="Paste the post here…">{{ form.get('text', '') }}</textarea>
+      </label>
+    </div>
+    <div style="margin-top:12px">
+      <label>Or a screenshot <span class="muted">(the text is read off the image; takes about 10 seconds)</span>
+        <input name="image" type="file" accept="image/*">
+      </label>
+    </div>
+    <div style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+      <button class="btn" type="submit" id="notesubmit">Add note</button>
+      <span id="noteprog" class="small muted"></span>
+    </div>
+  </form>
+</div>
+
+<style>
+.formgrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; }
+.formgrid label, form > div > label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+.formgrid label input, .formgrid label select, form > div > label textarea, form > div > label input { margin-top:4px; text-transform:none; letter-spacing:normal; font-size:13.5px; }
+</style>
+
+<script>
+// Anything over a second gets progress: the screenshot is read by the model before the
+// page comes back, and the briefing itself runs after the redirect (that page polls).
+document.getElementById('noteform').addEventListener('submit', function(){
+  var b = document.getElementById('notesubmit'), p = document.getElementById('noteprog');
+  var hasImg = (document.querySelector('input[name=image]').files || []).length > 0;
+  b.disabled = true;
+  p.textContent = hasImg ? 'Reading the screenshot… about 10 seconds' : 'Saving…';
+});
+</script>
+{% endblock %}

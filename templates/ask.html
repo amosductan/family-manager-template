@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Ask · Family Manager{% endblock %}
+{% block content %}
+<style>
+  .ask-form { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+  .ask-form input[type=text] { flex: 1 1 260px; min-width: 0; font: inherit; font-size: 16px; padding: 11px 13px;
+                               border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .ask-form input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .ask-form .btn.icon-btn { padding: 9px 12px; display: inline-flex; align-items: center; gap: 6px; }
+  .ask-form .btn.icon-btn svg { width: 18px; height: 18px; }
+  .ask-form .btn.listening { background: var(--err); border-color: var(--err); }
+  .ask-form label.file { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; text-transform: uppercase;
+                         letter-spacing: 1.5px; border: 1px solid var(--line); border-radius: 4px; padding: 9px 12px; cursor: pointer; color: var(--muted); }
+  .ask-form label.file input { display: none; }
+  .ask-form label.file.has-file { border-color: var(--accent); color: var(--accent); }
+  .ask-examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .ask-examples button { font: inherit; font-size: 12.5px; text-align: left; color: var(--muted); background: var(--bg-alt);
+                         border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; cursor: pointer; }
+  .ask-examples button:hover { color: var(--ink); border-color: var(--accent); }
+  #ask-progress .track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+  #ask-progress .fill { height: 100%; width: 30%; background: var(--accent); border-radius: 2px; animation: slide 1.2s ease-in-out infinite alternate; }
+  .answer { font-family: var(--serif); font-size: 18px; line-height: 1.55; white-space: pre-wrap; }
+  .answer-meta { margin-top: 10px; }
+  .doc-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); background: var(--bg-alt);
+              border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; margin-bottom: 8px; }
+  .act { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; padding: 10px 12px; margin-top: 8px;
+         display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+  .act .what { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+  .act .what .kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); display: block; }
+  .act.applied { border-left-color: var(--ok); background: var(--ok-soft); }
+  .act.failed { border-left-color: var(--err); background: var(--err-soft); }
+  .act .msg { font-size: 13px; margin-top: 3px; }
+  .act.failed .msg { color: var(--err); }
+  .act.applied .msg { color: var(--ok); }
+  .src { border-top: 1px solid var(--line); padding: 7px 0; display: grid; grid-template-columns: 64px 1fr; gap: 10px; font-size: 13.5px; }
+  .src .when { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .src .t { min-width: 0; overflow-wrap: anywhere; }
+  .src .t .small { display: block; }
+  .hist { border-top: 1px solid var(--line); padding: 9px 0; }
+  .hist .q { font-weight: 600; }
+  .hist .a { white-space: pre-wrap; color: var(--ink); margin-top: 3px; font-size: 14px; }
+  .hist .a.err { color: var(--err); }
+  @media (max-width: 720px) {
+    .ask-form input[type=text] { flex-basis: 100%; }
+    .ask-form .btn, .ask-form label.file { flex: 1 1 0; justify-content: center; }
+  }
+</style>
+
+<div class="eyebrow">Ask</div>
+<h1>Ask Family Manager</h1>
+<p class="small muted" style="margin-bottom:14px">Ask about anything on record, or say what to change. Attach a statement or screenshot if it helps.</p>
+
+<div class="card">
+  <form class="ask-form" id="ask-form" onsubmit="return startAsk(event)" enctype="multipart/form-data">
+    <input type="text" name="q" id="ask-q" placeholder="What time is back to school night?" autocomplete="off"
+           value="{{ prefill or '' }}" maxlength="500">
+    <button class="btn ghost icon-btn" id="mic-btn" type="button" onclick="toggleMic()" title="Speak your question" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      <span id="mic-label">Speak</span>
+    </button>
+    <label class="file" id="file-label" title="Attach a statement, invoice, schedule or screenshot">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      <span id="file-name">Attach</span>
+      <input type="file" name="file" id="ask-file" accept=".pdf,.png,.jpg,.jpeg,.gif,.docx,.xlsx,.csv,.txt,.ics" onchange="fileChosen()">
+    </label>
+    <button class="btn" id="ask-btn" type="submit">Ask</button>
+  </form>
+  <div class="ask-examples">
+    {% for ex in examples %}<button type="button" onclick="useExample(this)">{{ ex }}</button>{% endfor %}
+  </div>
+  <div id="ask-progress" style="display:none; margin-top:12px">
+    <div class="small" id="ask-stage">Starting…</div>
+    <div class="track"><div class="fill"></div></div>
+  </div>
+  <div id="ask-error" class="small" style="display:none; color:var(--err); margin-top:10px"></div>
+  <div id="mic-note" class="small muted" style="display:none; margin-top:8px"></div>
+</div>
+
+{% if latest %}
+<div class="card" id="answer-card">
+  <div class="small muted">You asked{% if latest.who %} ({{ latest.who }}){% endif %} · {{ latest.asked_at[:16].replace('T', ' ') }}</div>
+  <h2 style="margin:4px 0 10px">{{ latest.question }}</h2>
+  {% if latest.document %}
+    <div class="doc-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      {{ latest.document.name }} · {{ latest.document.kind }}{% if latest.document.status == 'ok' %} · {{ latest.document.chars }} characters read{% else %} · could not read: {{ latest.document.why or latest.document.status }}{% endif %}
+    </div>
+  {% endif %}
+  {% if latest.status == 'working' %}
+    <p class="small muted" id="latest-working" data-id="{{ latest.id }}">{{ latest.stage }} — this page will update itself.</p>
+  {% elif latest.status == 'failed' %}
+    <p class="small" style="color:var(--err)">That question failed: {{ latest.error }}</p>
+  {% else %}
+    <div class="answer">{{ latest.answer }}</div>
+    <div class="answer-meta small muted">
+      {% if latest.error %}<span style="color:var(--warn)">Claude didn't answer ({{ latest.error }}), so this is the raw match list.</span>
+      {% else %}Answered by {{ latest.model }} in {{ latest.seconds }}s from {{ latest.sources|length }} matching entries.{% endif %}
+    </div>
+
+    {% if latest.actions %}
+    {% set pending = latest.actions | selectattr('status', 'equalto', 'proposed') | list %}
+    <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+      <h3 style="margin:0">Proposed changes <span class="small muted" style="font-weight:400">· nothing is saved until you apply it</span></h3>
+      {% if pending|length > 1 %}<button class="btn small" onclick="applyAction({{ latest.id }}, 'all')">Apply all {{ pending|length }}</button>{% endif %}
+    </div>
+    {% for a in latest.actions %}
+    <div class="act {{ a.status }}">
+      <div class="what">
+        <span class="kind">{{ a.kind.replace('_', ' ') }}</span>
+        {{ describe(a) }}
+        {% if a.status == 'applied' %}<div class="msg">{{ a.message }} · by {{ a.applied_by }} at {{ (a.applied_at or '')[:16].replace('T',' ') }}{% if a.link %} · <a href="{{ a.link }}">open</a>{% endif %}</div>
+        {% elif a.status == 'failed' %}<div class="msg">Couldn't apply: {{ a.message }}</div>{% endif %}
+      </div>
+      {% if a.status == 'proposed' %}<button class="btn small" onclick="applyAction({{ latest.id }}, {{ loop.index0 }})">Apply</button>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if latest.sources %}
+    <details style="margin-top:12px">
+      <summary class="small" style="cursor:pointer">The entries it was shown ({{ latest.sources|length }})</summary>
+      <div style="margin-top:8px">
+      {% for s in latest.sources %}
+        <div class="src">
+          <div class="when">{{ (s.date or '')[5:] or '—' }}{% if s.time %}<br>{{ s.time }}{% endif %}</div>
+          <div class="t">
+            <span class="chip {{ (s.kid or 'Both')|kid_class }}">{{ s.kid or 'Both' }}</span> {{ s.title }}
+            <span class="small muted">{{ 'ask from mail' if s.kind == 'action' else s.source }}{% if s.details %} · {{ s.details[:160] }}{% endif %}</span>
+          </div>
+        </div>
+      {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  {% endif %}
+</div>
+{% endif %}
+
+{% if history %}
+<div class="card">
+  <h2 style="margin:0 0 8px">Earlier questions</h2>
+  {% for h in history %}
+  <div class="hist">
+    <div class="q"><a href="/ask/{{ h.id }}" style="text-decoration:none">{{ h.question }}</a>
+      <span class="small muted" style="font-weight:400">· {{ h.asked_at[:16].replace('T', ' ') }}{% if h.who %} · {{ h.who }}{% endif %}
+      {% if h.document %} · attached {{ h.document.name }}{% endif %}
+      {% if h.n_proposed %} · <span style="color:var(--warn)">{{ h.n_proposed }} change{{ '' if h.n_proposed == 1 else 's' }} waiting</span>{% endif %}
+      {% if h.n_applied %} · <span style="color:var(--ok)">{{ h.n_applied }} applied</span>{% endif %}</span></div>
+    {% if h.status == 'done' %}<div class="a">{{ (h.answer or '')[:400] }}{% if (h.answer or '')|length > 400 %}…{% endif %}</div>
+    {% elif h.status == 'failed' %}<div class="a err">Failed: {{ h.error }}</div>
+    {% else %}<div class="a muted">{{ h.stage }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+let askTimer = null;
+function who() { try { return localStorage.getItem('fm_who') || ''; } catch (e) { return ''; } }
+function useExample(b) { const q = document.getElementById('ask-q'); q.value = b.textContent; q.focus(); document.getElementById('ask-form').requestSubmit(); }
+function showStage(t) { document.getElementById('ask-progress').style.display = 'block'; document.getElementById('ask-stage').textContent = t; }
+function fileChosen() {
+  const f = document.getElementById('ask-file').files[0];
+  const lbl = document.getElementById('file-label');
+  document.getElementById('file-name').textContent = f ? f.name.slice(0, 28) : 'Attach';
+  lbl.classList.toggle('has-file', !!f);
+}
+async function startAsk(ev) {
+  ev.preventDefault();
+  const btn = document.getElementById('ask-btn'), err = document.getElementById('ask-error');
+  const q = document.getElementById('ask-q').value.trim();
+  const f = document.getElementById('ask-file').files[0];
+  if (q.length < 3 && !f) { err.textContent = 'Type or speak a question, or attach a document.'; err.style.display = 'block'; return false; }
+  err.style.display = 'none'; btn.disabled = true;
+  const fd = new FormData(document.getElementById('ask-form'));
+  const w = who(); if (w) fd.append('who', w);
+  let r, j;
+  try { r = await fetch('/ask', {method: 'POST', body: fd}); j = await r.json(); }
+  catch (e) { err.textContent = 'Could not reach the hub.'; err.style.display = 'block'; btn.disabled = false; return false; }
+  if (!r.ok && r.status !== 202) { err.textContent = j.error || ('Could not start: ' + r.status); err.style.display = 'block'; btn.disabled = false; return false; }
+  showStage(j.stage || 'Starting…');
+  poll(j.id);
+  return false;
+}
+function poll(id) {
+  clearTimeout(askTimer);
+  askTimer = setTimeout(async () => {
+    let j;
+    try { j = await (await fetch('/ask/' + id + '.json')).json(); }
+    catch (e) { showStage('Lost the connection — retrying'); poll(id); return; }
+    if (j.status === 'working') { showStage(j.stage || 'Working…'); poll(id); return; }
+    location.href = '/ask/' + id + '#answer-card';
+  }, 2000);
+}
+async function applyAction(id, idx) {
+  const btns = document.querySelectorAll('.act .btn, #answer-card .btn');
+  btns.forEach(b => b.disabled = true);
+  let r, j;
+  try { r = await fetch('/ask/' + id + '/apply', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({idx: idx, who: who() || 'parent'})}); j = await r.json(); }
+  catch (e) { alert('Could not reach the hub.'); btns.forEach(b => b.disabled = false); return; }
+  if (!r.ok) { alert(j.error || ('Failed: ' + r.status)); btns.forEach(b => b.disabled = false); return; }
+  location.href = '/ask/' + id + '#answer-card';
+  location.reload();
+}
+const working = document.getElementById('latest-working');
+if (working) { showStage(working.textContent); document.getElementById('ask-btn').disabled = true; poll(parseInt(working.dataset.id, 10)); }
+
+// ---- voice: the browser's own speech engine (Safari/Chrome). No audio leaves the page to us. ----
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false;
+if (SR) {
+  document.getElementById('mic-btn').hidden = false;
+} else {
+  const n = document.getElementById('mic-note');
+  n.textContent = 'This browser has no built-in speech recognition. On an iPhone, tap the box and use the keyboard microphone instead.';
+  n.style.display = 'block';
+}
+function toggleMic() {
+  if (listening) { rec && rec.stop(); return; }
+  rec = new SR();
+  rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+  const q = document.getElementById('ask-q'), btn = document.getElementById('mic-btn'), lbl = document.getElementById('mic-label');
+  let finalText = '';
+  rec.onstart = () => { listening = true; btn.classList.add('listening'); lbl.textContent = 'Listening'; q.value = ''; q.placeholder = 'Listening…'; };
+  rec.onresult = (ev) => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      if (ev.results[i].isFinal) finalText += ev.results[i][0].transcript; else interim += ev.results[i][0].transcript;
+    }
+    q.value = (finalText + ' ' + interim).trim();
+  };
+  rec.onerror = (ev) => {
+    const n = document.getElementById('mic-note');
+    n.textContent = ev.error === 'not-allowed' ? 'Microphone access was blocked — allow it in the browser and try again.' : ('Speech recognition stopped: ' + ev.error);
+    n.style.display = 'block';
+  };
+  rec.onend = () => {
+    listening = false; btn.classList.remove('listening'); lbl.textContent = 'Speak'; q.placeholder = 'What time is back to school night?';
+    if (finalText.trim().length >= 3) { q.value = finalText.trim(); document.getElementById('ask-form').requestSubmit(); }
+  };
+  try { rec.start(); } catch (e) { document.getElementById('mic-note').textContent = 'Could not start listening: ' + e; document.getElementById('mic-note').style.display = 'block'; }
+}
+{% if autostart %}document.getElementById('ask-form').requestSubmit();{% endif %}
+</script>
+{% endblock %}

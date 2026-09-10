@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Mail — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">{{ FAMILY_NAME }}</div>
+<h1>School &amp; family mail</h1>
+<p class="muted" style="margin-bottom:14px">Every school, camp and activity email, read in full.</p>
+
+<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px">
+  <button id="checknow" class="btn"><svg class="icon"><use href="#ic-refresh"/></svg> Check mail now</button>
+  <a class="btn ghost" href="/mail/sources"><svg class="icon"><use href="#ic-list"/></svg> Senders &amp; new mail{% if suggestions %} ({{ suggestions|length }}){% endif %}</a>
+  <a class="btn ghost" href="/mail/add" title="A class-app post, a paper note, a screenshot"><svg class="icon"><use href="#ic-mail"/></svg> Add a note</a>
+  <span id="ingest-progress" class="small muted"></span>
+</div>
+
+{% if open_actions %}
+<div class="card" style="border-left:3px solid var(--warn)">
+  <h2 style="margin-top:0"><svg class="icon"><use href="#ic-check"/></svg> Needs you — {{ open_actions|length }} open</h2>
+  {% for a in open_actions %}
+  <div class="action-row" data-id="{{ a.id }}">
+    <button class="btn ghost small act-done" title="Mark done"><svg class="icon"><use href="#ic-square"/></svg></button>
+    <div class="act-main">
+      <div>{{ a.text }}</div>
+      <div class="small muted">
+        <span class="chip {{ (a.kid)|kid_class }}">{{ a.kid }}</span>
+        {% if a.due %} · due {{ a.due }}{% if a.bucket == 2 %} <span class="chip s-quiet">past</span>{% endif %}{% endif %}
+        · <a href="/mail?source={{ a.source }}">{{ a.subject }}</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="catfilter" style="margin-bottom:12px">
+    <a class="catchip{{ ' on' if not kid and not src }}" href="/mail">All</a>
+    {% for k in kids %}<a class="catchip{{ ' on' if kid==k }}" href="/mail?kid={{ k }}">{{ k }}</a>{% endfor %}
+    {% for s in sources %}<a class="catchip{{ ' on' if src==s.source }}" href="/mail?source={{ s.source }}">{{ s.source }}</a>{% endfor %}
+  </div>
+
+  {% for it in items %}
+  <a class="mailrow" href="/mail/{{ it.row.id }}">
+    <div class="mr-date">{{ it.row.sent_date }}</div>
+    <div class="mr-main">
+      <div class="mr-head">{{ it.headline }}</div>
+      <div class="mr-meta small muted">
+        <span class="chip {{ (it.row.kid or 'Both')|kid_class }}">{{ it.row.kid or 'Both' }}</span>
+        <span class="chip tag">{{ it.row.source }}</span>
+        {% if it.n_docs %}<span class="chip tag">{{ it.n_docs }} doc{{ '' if it.n_docs==1 else 's' }}</span>{% endif %}
+        {% if it.n_open %}<span class="chip warn2">{{ it.n_open }} to do</span>{% endif %}
+        {% if it.summary._engine == 'deterministic' %}<span class="chip tag" title="Summarized without the model">basic</span>{% endif %}
+        {% if it.summary._engine == 'pending' %}<span class="chip warn2">reading…</span>{% endif %}
+      </div>
+      <div class="mr-sub small muted">{{ it.row.subject }}</div>
+    </div>
+  </a>
+  {% else %}
+  <p class="muted">No mail stored yet. Hit “Check mail now”.</p>
+  {% endfor %}
+</div>
+
+<style>
+.mailrow { display:flex; gap:14px; padding:12px 4px; border-bottom:1px dashed var(--line);
+           text-decoration:none; color:inherit; }
+.mailrow:last-child { border-bottom:0; }
+.mailrow:hover { background:var(--bg-alt); }
+.mr-date { flex:0 0 84px; font-variant-numeric:tabular-nums; color:var(--muted); font-size:13px; padding-top:2px; }
+.mr-main { flex:1 1 0; min-width:0; }
+.mr-head { font-weight:600; line-height:1.35; }
+.mr-meta { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin:5px 0 2px; }
+.mr-sub { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chip.warn2 { background:var(--warn-soft); color:var(--warn); }
+.action-row { display:flex; gap:10px; padding:9px 0; border-bottom:1px dashed var(--line); }
+.action-row:last-child { border-bottom:0; }
+.action-row.done .act-main { opacity:.5; text-decoration:line-through; }
+.act-main { flex:1 1 0; min-width:0; }
+@media (max-width:560px){ .mr-date{ flex-basis:64px; font-size:12px; } }
+</style>
+
+<script>
+function who(){ return localStorage.getItem('fm_who') || ''; }
+document.querySelectorAll('.act-done').forEach(function(b){
+  b.addEventListener('click', function(){
+    var row = b.closest('.action-row'), id = row.dataset.id;
+    var done = row.classList.contains('done');
+    fetch('/mail/action', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id:id, action: done?'reopen':'done', who:who()})})
+      .then(function(){ row.classList.toggle('done'); });
+  });
+});
+// Check mail now — reuse the same async ingest + progress the dashboard uses.
+var btn = document.getElementById('checknow'), prog = document.getElementById('ingest-progress');
+if (btn) btn.addEventListener('click', function(){
+  btn.disabled = true; prog.textContent = 'Starting…';
+  fetch('/ingest/run', {method:'POST'}).then(function(){ poll(); });
+  function poll(){
+    fetch('/ingest/status').then(function(r){return r.json();}).then(function(s){
+      if (s.running){ prog.textContent = s.stage || 'Working…'; setTimeout(poll, 1500); }
+      else { prog.textContent = s.summary || 'Done'; setTimeout(function(){ location.reload(); }, 900); }
+    });
+  }
+});
+</script>
+{% endblock %}

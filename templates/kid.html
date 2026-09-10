@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{# with context — macros do not inherit the context processor globals otherwise. #}
+{% from "_macros.html" import event_row with context %}
+{% block title %}{{ kid }} — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">School hub</div>
+<h1>{{ kid }}</h1>
+
+<div class="grid cols-2">
+  <div>
+    <div class="card">
+      <h2 style="margin-top:0"><svg class="icon"><use href="#ic-calendar"/></svg> Upcoming</h2>
+      {% if groups %}
+        {% for g in groups %}
+        <div class="daygroup">
+          <div class="daydate {{ 'today' if g.is_today }}">{{ g.display }}</div>
+          {% for e in g.events %}{{ event_row(e, show_kid=False) }}{% endfor %}
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted">Nothing upcoming on record.</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">Recent history</h2>
+      {% for e in past %}
+      <div class="ev">
+        <span class="sub" style="min-width:86px">{{ e.event_date }}</span>
+        <span class="when">{{ e.start_time | clock }}</span>
+        <span class="chip t-{{ e.type }}">{{ TYPE_LABELS.get(e.type, e.type) }}</span>
+        <span class="title">{{ e.title }}</span>
+      </div>
+      {% else %}
+      <p class="muted small">No past events.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div>
+  <div class="card" id="week">
+    <h2 style="margin-top:0; display:flex; align-items:center; gap:8px"><svg class="icon"><use href="#ic-calendar"/></svg> Week at school
+      <a class="btn ghost small" style="margin-left:auto" href="/kid/{{ kid }}/week.xlsx" title="Download as a spreadsheet"><svg class="icon"><use href="#ic-download"/></svg></a></h2>
+    {% if routines.n %}
+    <table class="week">
+      {% for d in routines.week %}
+      <tr class="{{ 'today' if d.is_today }}">
+        <td class="wd">{{ d.name[:3] }}</td>
+        <td>
+          {% for r in d.entries %}
+          <div class="rt"><span><b>{{ r.label }}</b>{% if r.note %} <span class="muted">— {{ r.note }}</span>{% endif %}</span>
+            <form method="post" action="/kid/{{ kid }}/routine" title="Source: {{ r.source }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ r.id }}"><button class="x" title="Remove"><svg class="icon"><use href="#ic-x"/></svg></button></form>
+          </div>
+          {% else %}<span class="muted small">—</span>{% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if routines.standing %}
+    <div class="eyebrow" style="margin-top:12px">Every day</div>
+    {% for r in routines.standing %}
+    <div class="rt"><span><b>{{ r.label }}</b>{% if r.note %} <span class="muted">— {{ r.note }}</span>{% endif %}</span>
+      <form method="post" action="/kid/{{ kid }}/routine" title="Source: {{ r.source }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ r.id }}"><button class="x" title="Remove"><svg class="icon"><use href="#ic-x"/></svg></button></form>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% set srcs = (routines.week|map(attribute='entries')|sum(start=[]) + routines.standing)|map(attribute='source')|unique|list %}
+    <div class="small muted" style="margin-top:10px">From: {{ srcs|join(' · ') }}</div>
+    {% else %}
+    <p class="muted">Nothing on record yet. Add the specials schedule under Mail → Add a note.</p>
+    {% endif %}
+    <details style="margin-top:10px">
+      <summary class="small muted">Add or change a day</summary>
+      <form method="post" action="/kid/{{ kid }}/routine" class="rtform" id="rtform">
+        <input type="hidden" name="action" value="add"><input type="hidden" name="who" id="rt-who">
+        <label>Day<select name="weekday">
+          <option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option>
+          <option value="3">Thursday</option><option value="4">Friday</option><option value="-1">Every day</option></select></label>
+        <label>What<input name="label" required placeholder="PE, Library, Snack"></label>
+        <label>Note<input name="note" placeholder="wear sneakers"></label>
+        <button class="btn small" type="submit">Save</button>
+      </form>
+      <div class="small muted" style="margin-top:6px">Saving “PE” on a day that already has “PE” updates its note.</div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0"><svg class="icon"><use href="#ic-mail"/></svg> Newsletters</h2>
+    {% for item in newsletters %}
+    <div style="padding:10px 0; border-bottom:1px dashed var(--line)">
+      <div><strong>{{ item.row.label }}</strong> <span class="sub">{{ item.row.nl_date }}</span></div>
+      {% if item.highlights %}
+      <ul class="small muted" style="margin:6px 0 0 18px">
+        {% for h in item.highlights %}<li>{{ h }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="muted">No newsletters stored yet.</p>
+    {% endfor %}
+  </div>
+  </div>
+</div>
+
+<style>
+.week { width:100%; border-collapse:collapse; }
+.week td { padding:7px 4px; border-bottom:1px dashed var(--line); vertical-align:top; }
+.week tr:last-child td { border-bottom:0; }
+.week .wd { width:40px; text-transform:uppercase; font-size:11px; letter-spacing:1px; color:var(--muted); padding-top:9px; }
+.week tr.today .wd { color:var(--accent); font-weight:600; }
+.rt { display:flex; gap:6px; align-items:baseline; min-width:0; }
+.rt > span { flex:1 1 0; min-width:0; }
+.rt form { display:inline; flex:0 0 auto; }
+.rt button.x { background:none; border:0; color:var(--muted); cursor:pointer; padding:0 2px; line-height:1; }
+.rt button.x:hover { color:var(--err); }
+.rtform { display:grid; grid-template-columns: 1fr; gap:8px; margin-top:8px; }
+.rtform label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+.rtform label input, .rtform label select { margin-top:3px; text-transform:none; letter-spacing:normal; font-size:13.5px; }
+@media (min-width:720px){ .rtform { grid-template-columns: 130px 1fr 1fr auto; align-items:end; } }
+</style>
+<script>
+// A change on the shared board records WHO made it, same as the checklist.
+var w = document.getElementById('rt-who'); if (w) w.value = localStorage.getItem('fm_who') || '';
+</script>
+{% endblock %}

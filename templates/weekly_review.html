@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Weekly review — Family Manager{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/household.css">
+<div class="eyebrow">Five minutes together · week of {{ week | nice_date }}</div>
+<h1>Make room for the week.</h1>
+<p class="hh-intro">Settle the handoffs, look a little ahead, and leave with a shared plan.</p>
+<div class="hh-grid"><a class="hh-metric" href="/actions"><strong>{{ unassigned }}</strong><span>actions unassigned</span></a>
+<a class="hh-metric" href="/days-off"><strong>{{ attention | selectattr('source','equalto','Coverage') | list | length }}</strong><span>coverage days to settle</span></a>
+<a class="hh-metric" href="/payment-plans"><strong>{{ transitions | length }}</strong><span>payment transitions ahead</span></a></div>
+<div class="hh-split"><section class="card"><h2 style="margin-top:0">1. Settle the next two weeks</h2>
+{% for t in attention %}<div class="hh-line"><a href="{{ '/days-off' if t.source == 'Coverage' else '/actions' }}">{{ t.title }}</a>
+<div class="small muted">{{ t.due | nice_date }} · {{ t.owner or 'Unassigned' }}{% if t.snoozed %} · reminder {{ t.snooze_until }}{% endif %}</div></div>
+{% else %}<p class="muted">No dated open actions in the next two weeks.</p>{% endfor %}
+<p style="margin-top:16px"><a href="/actions?view=review">Review older asks</a> · <a href="/actions?owner=Unassigned">Assign the undated ones</a></p>
+</section><section class="card"><h2 style="margin-top:0">2. Check what changes</h2>
+{% for p in transitions %}<div class="hh-line"><a href="/payment-plans#payment-{{ p.id }}">{{ p.name }}</a>
+<p class="small muted">{% if p.starts %}Starts {{ p.starts }}. {% endif %}{% if p.ends %}Ends {{ p.ends }}. {% endif %}{% if p.change_date %}Changes {{ p.change_date }}. {% endif %}{{ p.change_note or '' }}</p></div>
+{% else %}<p class="muted">No recorded transitions in the next 30 days. <a href="/payment-plans">Check the payment plans</a>.</p>{% endfor %}
+<p class="small muted" style="margin-top:16px">Check camp registrations, permission slips, and activity renewals in <a href="/actions">Shared actions</a>. Unknown dates remain visible as undated tasks.</p>
+</section></div>
+<section class="card" style="margin-top:20px"><h2 style="margin-top:0">3. Leave with a plan</h2>
+<form class="hh-form" id="weekly-plan"><label>This week, we agreed…<textarea name="plan" maxlength="5000" placeholder="Who handles pickup? What are we waiting for? What can wait until next week?">{{ review.plan if review else '' }}</textarea></label>
+<label>How much tracking are you still carrying? <select name="burden"><option value="">Not scored</option>{% for n,label in [(1,'Very little'),(2,'A little'),(3,'Some'),(4,'A lot'),(5,'Nearly all of it')] %}<option value="{{ n }}" {{ 'selected' if review and review.burden == n }}>{{ n }} — {{ label }}</option>{% endfor %}</select></label>
+<div><button class="btn">Save our plan</button><span class="hh-status" role="status"></span></div></form>
+{% if review %}<p class="small muted">Last saved by {{ review.updated_by }} · {{ review.updated_at }}</p>{% endif %}</section>
+{% if reviews %}<details style="margin-top:20px"><summary>Previous reviews</summary>{% for r in reviews %}<div class="hh-line"><b>{{ r.week | nice_date }}</b><p style="white-space:pre-wrap">{{ r.plan }}</p><span class="small muted">{{ r.updated_by }}{% if r.burden %} · tracking burden {{ r.burden }}/5{% endif %}</span></div>{% endfor %}</details>{% endif %}
+<script src="/static/household.js"></script>
+{% endblock %}

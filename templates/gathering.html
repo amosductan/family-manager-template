@@ -1,0 +1,432 @@
+{% extends "base.html" %}
+{% block title %}{{ g.name }} — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">
+  {{ kinds[g.kind] }}
+  {%- if s.past %} · happened{% elif s.days_until is not none %} · {% if s.days_until == 0 %}today{% elif s.days_until < 0 %}happening now{% else %}{{ s.days_until }} day{{ 's' if s.days_until != 1 }} away{% endif %}{% endif %}
+  {%- if g.status == 'cancelled' %} · canceled{% endif %}
+</div>
+<h1>{{ g.name }}</h1>
+
+{% if request.args.get('error') %}<div class="card"><p class="small" style="color:var(--err)">{{ request.args.get('error') }}</p></div>{% endif %}
+
+{# ------------------------------------------------------------ the header #}
+<div class="card" id="head">
+  <div class="st-top">
+    <div class="facts">
+      <div class="fact"><span class="lbl">When</span>
+        {% if g.event_date %}<b>{{ g.event_date | nice_date }}</b>{% if g.end_date and g.end_date != g.event_date %} – {{ g.end_date | nice_date }}{% endif %}{% if g.start_time %} · {{ g.start_time | clock }}{% if g.end_time %} – {{ g.end_time | clock }}{% endif %}{% endif %}
+        {% else %}<span style="color:var(--warn)">date not picked</span> <span class="muted">· {{ 'birthday' if g.kind == 'kid_birthday' else 'occasion' }} {{ g.occasion_date | nice_date }}</span>{% endif %}
+      </div>
+      <div class="fact"><span class="lbl">Where</span> {{ g.venue or '—' }}</div>
+      {% if g.headcount_goal %}<div class="fact"><span class="lbl">How many</span> {{ g.headcount_goal }}</div>{% endif %}
+      <div class="fact"><span class="lbl">Budget</span> {% if g.budget %}${{ '%.0f' % g.budget }}{% else %}—{% endif %}
+        {% if s.planned %}<span class="muted">· ${{ '%.0f' % s.planned }} planned{% if s.paid %}, ${{ '%.0f' % s.paid }} paid{% endif %}</span>{% endif %}</div>
+      {% if g.notes %}<div class="fact wide"><span class="lbl">Notes</span> <span style="white-space:pre-wrap">{{ g.notes }}</span></div>{% endif %}
+      {% if origin %}<div class="fact wide muted small">Started from <a href="/gathering/{{ origin.slug }}">{{ origin.name }} ({{ (origin.event_date or origin.occasion_date)[:4] }})</a> — last year's answers are in the plan as notes.</div>{% endif %}
+    </div>
+    <div class="st-tools">
+      <label class="st-who">I am
+        <select id="who-picker" class="who-field"><option value="">(pick)</option>{% for p in PARENTS %}<option>{{ p }}</option>{% endfor %}</select>
+      </label>
+      <button class="btn ghost small" type="button" id="edit-head">Edit details</button>
+      <a class="btn ghost small" href="/gathering/{{ g.slug }}.xlsx"><svg class="icon"><use href="#ic-download"/></svg> Spreadsheet</a>
+    </div>
+  </div>
+
+  <form method="post" action="/gathering/{{ g.slug }}/update" id="head-form" hidden>
+    <input type="hidden" name="who" class="who-field">
+    <div class="formgrid">
+      <label class="wide">Name<input name="name" value="{{ g.name }}" required></label>
+      {% if g.kind == 'kid_birthday' %}
+      <label>Whose<select name="honoree">{% for k in kids %}<option {{ 'selected' if k == g.honoree }}>{{ k }}</option>{% endfor %}</select></label>
+      <label>Birthday<input name="occasion_date" type="date" value="{{ g.occasion_date or '' }}"></label>
+      {% endif %}
+      <label>{{ 'Party date' if g.kind != 'family_visit' else 'First day' }}<input name="event_date" type="date" value="{{ g.event_date or '' }}"></label>
+      {% if g.kind == 'family_visit' %}<label>Last day<input name="end_date" type="date" value="{{ g.end_date or '' }}"></label>{% endif %}
+      <label>Starts<input name="start_time" type="time" value="{{ g.start_time or '' }}"></label>
+      <label>Ends<input name="end_time" type="time" value="{{ g.end_time or '' }}"></label>
+      <label>Where<input name="venue" value="{{ g.venue or '' }}"></label>
+      <label>How many<input name="headcount_goal" value="{{ g.headcount_goal or '' }}" placeholder="12 kids + parents"></label>
+      <label>Budget<input name="budget" value="{{ ('%.0f' % g.budget) if g.budget else '' }}" inputmode="decimal"></label>
+    </div>
+    <div style="margin-top:10px"><label>Notes<textarea name="notes" rows="2">{{ g.notes or '' }}</textarea></label></div>
+    <div class="sit-editbtns">
+      <button class="btn small" type="submit">Save</button>
+      <button class="btn ghost small" type="button" id="cancel-head">Cancel</button>
+      <button class="btn ghost small" type="button" id="del-g" style="margin-left:auto; color:var(--err); border-color:var(--err)">Remove this gathering</button>
+    </div>
+  </form>
+</div>
+
+<div class="statrow" id="stats">
+  <div class="stat"><div class="num" data-stat="pct">{{ s.pct }}<span class="small muted">%</span></div><div class="lbl">Plan done</div></div>
+  <div class="stat"><div class="num" data-stat="n_open">{{ s.n_open }}</div><div class="lbl">Open</div></div>
+  <div class="stat"><div class="num" data-stat="n_decided">{{ s.n_decided }}</div><div class="lbl">Decided, not done</div></div>
+  <div class="stat"><div class="num"><span data-stat="n_yes">{{ s.n_yes }}</span><span class="small muted">/<span data-stat="n_invited">{{ s.n_invited }}</span></span></div><div class="lbl">Yes / invited</div></div>
+  <div class="stat"><div class="num"><span data-stat="yes_kids">{{ s.yes_kids }}</span><span class="small muted"> + <span data-stat="yes_adults">{{ s.yes_adults }}</span></span></div><div class="lbl">Kids + adults coming</div></div>
+</div>
+<div class="gbar"><div class="gfill" id="gfill" style="width:{{ s.pct }}%"></div></div>
+<div class="jump small"><a href="#plan">The plan</a><a href="#guests-h">Guests</a><a href="#after">How it went</a></div>
+
+{# ------------------------------------------------------------ how it went (first once it is over) #}
+{% set after_first = s.past or g.status == 'done' %}
+{% macro after_card(after_first) %}
+<div class="card" id="after" style="border-left:3px solid {{ 'var(--ok)' if (g.went_well or g.do_differently) else 'var(--quiet)' }}">
+  <h2 style="margin-top:0">How it went</h2>
+  <p class="small muted">Notes here carry into next year's plan.</p>
+  <form method="post" action="/gathering/{{ g.slug }}/update">
+    <input type="hidden" name="who" class="who-field">
+    <div class="formgrid">
+      <label class="wide">What went well<textarea name="went_well" rows="2">{{ g.went_well or '' }}</textarea></label>
+      <label class="wide">Do differently next time<textarea name="do_differently" rows="2">{{ g.do_differently or '' }}</textarea></label>
+      <label>What it actually cost<input name="actual_cost" value="{{ ('%.2f' % g.actual_cost) if g.actual_cost else '' }}" inputmode="decimal" placeholder="$"></label>
+      <label>Who came<input name="attended" value="{{ g.attended or '' }}" placeholder="11 kids, most parents stayed"></label>
+      <label>Status<select name="status">{% for st, lbl in [('planning','Planning'),('done','Happened'),('cancelled','Canceled')] %}<option value="{{ st }}" {{ 'selected' if g.status == st }}>{{ lbl }}</option>{% endfor %}</select></label>
+    </div>
+    <div class="sit-editbtns"><button class="btn small" type="submit">Save</button></div>
+  </form>
+  {% if g.kind == 'kid_birthday' or after_first %}
+  <form method="post" action="/gathering/{{ g.slug }}/clone" style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--line)">
+    <input type="hidden" name="who" class="who-field">
+    <button class="btn ghost small" type="submit">Start next year's from this one</button>
+    <span class="small muted" style="margin-left:8px">Same plan, statuses reset; same guests, RSVPs cleared; dates a year on.</span>
+  </form>
+  {% endif %}
+</div>
+{% endmacro %}
+{% if after_first %}{{ after_card(true) }}{% endif %}
+
+{# ------------------------------------------------------------ plan + guests #}
+<div class="st-grid">
+<section>
+  <h2 id="plan">The plan</h2>
+  <p class="small muted">Answer each line. Mark it done or skip it.</p>
+  {% for grp in groups %}
+  <div class="card ws" data-ws="{{ grp.workstream }}">
+    <div class="ws-head">
+      <h3>{{ grp.workstream }}</h3>
+      <span class="small muted ws-count">{{ grp.done }} of {{ grp.live }}</span>
+    </div>
+    {% for i in grp['items'] %}
+    <div class="item st-{{ i.status }}" data-id="{{ i.id }}">
+      <div class="item-row">
+        <select class="f-status stsel st-{{ i.status }}" title="Status">
+          {% for st in statuses %}<option value="{{ st }}" {{ 'selected' if i.status == st }}>{{ status_labels[st] }}</option>{% endfor %}
+        </select>
+        <div class="item-title">{{ i.title }}</div>
+        <div class="item-meta small muted">
+          {% if i.owner %}<span class="chip own-{{ PARENTS.index(i.owner) if i.owner in PARENTS else 'x' }}">{{ i.owner }}</span>{% endif %}
+          {% if i.due %}<span class="chip {{ 'due-late' if i.due < today and i.status in ('open','decided') else 'tag' }}">by {{ i.due | nice_date_noyear }}</span>{% endif %}
+          {% if i.cost %}<span class="chip tag">${{ '%.0f' % i.cost }}{{ ' paid' if i.paid }}</span>{% endif %}
+        </div>
+        <button class="btn ghost small more" type="button" title="Owner, due date, cost">…</button>
+      </div>
+      <input class="f-decision" type="text" value="{{ i.decision or '' }}" placeholder="The answer, when you have it">
+      <div class="item-more" hidden>
+        <label>Owner<select class="f-owner"><option value="">either</option>{% for p in PARENTS %}<option {{ 'selected' if i.owner == p }}>{{ p }}</option>{% endfor %}</select></label>
+        <label>Due<input class="f-due" type="date" value="{{ i.due or '' }}"></label>
+        <label>Cost<input class="f-cost" inputmode="decimal" value="{{ ('%.2f' % i.cost) if i.cost else '' }}" placeholder="$"></label>
+        <label class="chk"><input class="f-paid" type="checkbox" {{ 'checked' if i.paid }}> Paid</label>
+        <button class="btn ghost small del" type="button" style="color:var(--err); border-color:var(--err)">Remove</button>
+        <span class="small muted status"></span>
+      </div>
+      {% if i.updated_by %}<div class="small muted upd">{{ i.updated_by }} · {{ (i.updated_at or '')[:10] }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    <form class="itemadd small">
+      <input type="text" class="itemadd-title" placeholder="Add to {{ grp.workstream }}…">
+      <button class="btn ghost small" type="submit">Add</button>
+    </form>
+  </div>
+  {% endfor %}
+  <div class="card">
+    <form class="itemadd small" id="wsadd">
+      <input type="text" id="ws-name" placeholder="New workstream (Pinata, Photographer…)" list="ws-list">
+      <datalist id="ws-list">{% for w in workstreams %}<option value="{{ w }}">{% endfor %}</datalist>
+      <input type="text" id="ws-first" placeholder="First thing to do">
+      <button class="btn ghost small" type="submit">Add</button>
+    </form>
+  </div>
+</section>
+
+<section>
+  <h2 id="guests-h">Guests</h2>
+  <div class="card">
+    <div class="tally small">
+      <span><b data-stat="n_guests">{{ s.n_guests }}</b> on the list</span>
+      <span><b data-stat="n_invited">{{ s.n_invited }}</b> invited</span>
+      <span style="color:var(--ok)"><b data-stat="n_yes">{{ s.n_yes }}</b> yes</span>
+      <span style="color:var(--warn)"><b data-stat="n_no_reply">{{ s.n_no_reply }}</b> no reply</span>
+      <span><b data-stat="n_maybe">{{ s.n_maybe }}</b> maybe</span>
+      <span class="muted"><b data-stat="n_no">{{ s.n_no }}</b> no</span>
+    </div>
+    <div class="small muted" style="margin-top:4px">Coming: <b data-stat="yes_kids">{{ s.yes_kids }}</b> kids + <b data-stat="yes_adults">{{ s.yes_adults }}</b> adults. Invited in all: <span data-stat="invited_kids">{{ s.invited_kids }}</span> kids + <span data-stat="invited_adults">{{ s.invited_adults }}</span> adults.</div>
+    <div class="sit-editbtns" style="margin-top:10px">
+      <button class="btn ghost small" type="button" id="invited-all" title="Every name not yet invited becomes invited / no reply">Invitations went out</button>
+      <button class="btn ghost small" type="button" id="paste-toggle">Paste a list</button>
+    </div>
+    <form id="paste-form" hidden style="margin-top:10px">
+      <textarea id="paste-text" rows="5" placeholder="One per line. 'Liam - Sarah 555-0100' keeps the part after the dash as the contact."></textarea>
+      <div class="sit-editbtns">
+        <label class="small">Adults each <input id="paste-adults" type="number" value="0" min="0" style="width:60px"></label>
+        <label class="small">Kids each <input id="paste-kids" type="number" value="1" min="0" style="width:60px"></label>
+        <button class="btn small" type="submit">Add them</button>
+        <span class="small muted" id="paste-status"></span>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" id="guests">
+    {% for gu in guests %}
+    <div class="guest r-{{ gu.rsvp }}" data-id="{{ gu.id }}">
+      <div class="guest-row">
+        <input class="g-name" value="{{ gu.name }}" title="Name">
+        <select class="g-rsvp rs-{{ gu.rsvp }}">{% for r in rsvps %}<option value="{{ r }}" {{ 'selected' if gu.rsvp == r }}>{{ rsvp_labels[r] }}</option>{% endfor %}</select>
+        <button class="btn ghost small more" type="button" title="Household, counts, contact">…</button>
+      </div>
+      <div class="guest-more" hidden>
+        <label>Household<input class="g-household" value="{{ gu.household or '' }}" placeholder="the Parks"></label>
+        <label>Adults<input class="g-adults" type="number" min="0" value="{{ gu.adults }}"></label>
+        <label>Kids<input class="g-kids" type="number" min="0" value="{{ gu.kids }}"></label>
+        <label>Contact<input class="g-contact" value="{{ gu.contact or '' }}" placeholder="parent, phone or email"></label>
+        <label class="wide">Notes<input class="g-notes" value="{{ gu.notes or '' }}" placeholder="allergy, sibling coming too"></label>
+        <button class="btn ghost small del" type="button" style="color:var(--err); border-color:var(--err)">Remove</button>
+        <span class="small muted status"></span>
+      </div>
+      <div class="small muted gsub">{% if gu.household %}{{ gu.household }} · {% endif %}{{ gu.adults }} adult{{ 's' if gu.adults != 1 }}, {{ gu.kids }} kid{{ 's' if gu.kids != 1 }}{% if gu.contact %} · {{ gu.contact }}{% endif %}{% if gu.notes %} · {{ gu.notes }}{% endif %}</div>
+    </div>
+    {% else %}
+    <p class="small muted" id="no-guests">Nobody on the list yet. Add one below or paste the class list.</p>
+    {% endfor %}
+    <form class="itemadd small" id="guestadd" style="margin-top:10px">
+      <input type="text" id="guest-name" placeholder="Add a guest…">
+      <button class="btn ghost small" type="submit">Add</button>
+    </form>
+  </div>
+</section>
+</div>
+
+{% if not after_first %}{{ after_card(false) }}{% endif %}
+
+<style>
+.st-top { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; flex-wrap:wrap; }
+.st-tools { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.st-who { display:flex; align-items:center; gap:8px; font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+.st-who select { width:auto; }
+.facts { display:flex; flex-wrap:wrap; gap:6px 22px; flex:1 1 300px; min-width:0; }
+.fact { min-width:0; }
+.fact.wide { flex-basis:100%; }
+.fact .lbl { font-size:10.5px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-right:6px; }
+#head-form { margin-top:14px; padding-top:14px; border-top:1px dashed var(--line); }
+.formgrid label.wide { grid-column: 1 / -1; }
+.sit-editbtns { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; align-items:center; }
+textarea { width:100%; font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:#fff; min-width:0; }
+.jump { display:flex; gap:14px; margin:-10px 0 14px; } .jump a { text-transform:uppercase; letter-spacing:1px; font-size:10.5px; color:var(--muted); text-decoration:none; } .jump a:hover { color:var(--accent); }
+.gbar { height:5px; background:var(--line); border-radius:3px; overflow:hidden; margin:4px 0 18px; }
+.gfill { height:100%; background:var(--accent); border-radius:3px; transition: width .3s; }
+.st-grid { display:grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 0 28px; }
+.st-grid section { min-width:0; }
+.st-grid h2:first-child { margin-top:8px; }
+.ws { margin-bottom:12px; }
+.ws-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+.ws h3 { font-family:var(--serif); font-weight:400; font-size:17px; margin:0 0 4px; }
+.item { padding:8px 0; border-top:1px dashed var(--line); }
+.item-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; min-width:0; }
+.item-title { flex:1 1 160px; min-width:0; }
+.item.st-done .item-title, .item.st-skipped .item-title { color:var(--muted); }
+.item.st-skipped .item-title { text-decoration: line-through; }
+.item-meta { display:flex; gap:4px; flex-wrap:wrap; }
+.stsel { font-size:10.5px; text-transform:uppercase; letter-spacing:1px; padding:3px 6px; border-radius:999px; border:1px solid var(--line); background:#fff; width:auto; }
+.stsel.st-open { color:var(--warn); border-color:var(--warn); }
+.stsel.st-decided { color:var(--accent); border-color:var(--accent); }
+.stsel.st-done { color:var(--ok); border-color:var(--ok); background:var(--ok-soft); }
+.stsel.st-skipped { color:var(--muted); }
+.f-decision { width:100%; margin-top:6px; padding:5px 8px; font-size:13.5px; border:1px solid transparent; border-bottom-color:var(--line); border-radius:4px; background:transparent; }
+.f-decision:focus { border-color:var(--accent); background:#fff; outline:none; }
+.f-decision:not(:placeholder-shown) { color:var(--ink); font-weight:500; }
+.item.st-done .f-decision, .item.st-skipped .f-decision { color:var(--muted); font-weight:400; }
+/* A class with display:flex outranks the UA's [hidden]{display:none}; say it explicitly. */
+.item-more[hidden], .guest-more[hidden] { display:none; }
+.item-more, .guest-more { display:flex; gap:8px 12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px; padding:8px; background:var(--bg-alt); border-radius:6px; }
+.item-more label, .guest-more label { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); display:flex; flex-direction:column; gap:3px; flex:1 1 110px; min-width:0; }
+.item-more label.chk { flex-direction:row; align-items:center; flex:0 0 auto; }
+.guest-more label.wide { flex-basis:100%; }
+.item-more input, .item-more select, .guest-more input { width:100%; min-width:0; }
+.upd { margin-top:3px; font-size:11px; }
+/* Owner chips by the parent's position in the household (own-0, own-1 ...). */
+.chip.own-0, .chip.own-2 { background:var(--accent-soft); color:var(--accent); }
+.chip.own-1, .chip.own-3 { background:var(--ok-soft); color:var(--ok); }
+.chip.due-late { background:var(--err-soft); color:var(--err); }
+.itemadd { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+.itemadd input { flex:1 1 140px; min-width:0; }
+.btn.more { padding:4px 8px; }
+.tally { display:flex; gap:6px 16px; flex-wrap:wrap; }
+.guest { padding:7px 0; border-top:1px dashed var(--line); }
+.guest:first-child { border-top:0; }
+.guest-row { display:flex; gap:8px; align-items:center; min-width:0; }
+.g-name { flex:1 1 120px; min-width:0; border:1px solid transparent; background:transparent; padding:5px 6px; border-radius:4px; }
+.g-name:focus { border-color:var(--accent); background:#fff; outline:none; }
+.g-rsvp { width:auto; font-size:11px; text-transform:uppercase; letter-spacing:.8px; padding:4px 6px; border-radius:999px; border:1px solid var(--line); background:#fff; }
+.g-rsvp.rs-yes { color:var(--ok); border-color:var(--ok); background:var(--ok-soft); }
+.g-rsvp.rs-no { color:var(--muted); text-decoration:line-through; }
+.g-rsvp.rs-invited { color:var(--warn); border-color:var(--warn); }
+.g-rsvp.rs-maybe { color:var(--accent); border-color:var(--accent); }
+.guest.r-no .g-name { color:var(--muted); }
+.gsub { margin-top:2px; padding-left:6px; }
+@media (max-width: 900px) { .st-grid { grid-template-columns: minmax(0, 1fr); } }
+</style>
+
+<script>
+const SLUG = {{ g.slug | tojson }};
+const who = () => localStorage.getItem('fm_who') || '';
+document.getElementById('who-picker').addEventListener('change', e => {
+  localStorage.setItem('fm_who', e.target.value);
+  document.querySelectorAll('.who-field').forEach(f => { f.value = e.target.value; });
+});
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...body, who: who()})});
+  const data = await r.json().catch(() => ({error: 'bad response'}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+function paintStats(s) {
+  if (!s) return;
+  document.querySelectorAll('[data-stat]').forEach(el => { if (s[el.dataset.stat] !== undefined) el.textContent = s[el.dataset.stat]; });
+  document.getElementById('gfill').style.width = (s.pct || 0) + '%';
+}
+function recount(ws) {
+  const items = [...ws.querySelectorAll('.item')];
+  const live = items.filter(i => !i.classList.contains('st-skipped'));
+  const done = live.filter(i => i.classList.contains('st-done')).length;
+  ws.querySelector('.ws-count').textContent = done + ' of ' + live.length;
+}
+function flash(el, text, isErr) {
+  if (!el) return;
+  el.textContent = text; el.style.color = isErr ? 'var(--err)' : '';
+  if (!isErr) setTimeout(() => { el.textContent = ''; }, 1500);
+}
+
+// Header
+document.getElementById('edit-head').addEventListener('click', () => {
+  const f = document.getElementById('head-form'); f.hidden = !f.hidden;
+  f.querySelectorAll('.who-field').forEach(x => { x.value = who(); });
+});
+document.getElementById('cancel-head').addEventListener('click', () => { document.getElementById('head-form').hidden = true; });
+document.getElementById('del-g').addEventListener('click', async e => {
+  // No confirm(): it blocks the tab. Two clicks instead.
+  const b = e.currentTarget;
+  if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to remove everything'; return; }
+  await post('/gathering/' + SLUG + '/delete', {});
+  location.href = '/gatherings';
+});
+
+// The plan: each item saves itself, field by field, and says who.
+function wireItem(item) {
+  const id = item.dataset.id;
+  const status = item.querySelector('.item-more .status');
+  const save = async (fields) => {
+    try {
+      const d = await post('/gathering/' + SLUG + '/item', {id, ...fields});
+      const it = d.item;
+      item.className = 'item st-' + it.status;
+      const sel = item.querySelector('.f-status'); sel.value = it.status; sel.className = 'f-status stsel st-' + it.status;
+      const meta = item.querySelector('.item-meta');
+      const today = {{ today | tojson }};
+      meta.innerHTML = (it.owner ? '<span class="chip own-' + (window.FM_PARENTS || []).indexOf(it.owner) + '">' + it.owner + '</span>' : '')
+        + (it.due ? '<span class="chip ' + ((it.due < today && (it.status === 'open' || it.status === 'decided')) ? 'due-late' : 'tag') + '">by ' + it.due + '</span>' : '')
+        + (it.cost ? '<span class="chip tag">$' + Math.round(it.cost) + (it.paid ? ' paid' : '') + '</span>' : '');
+      let upd = item.querySelector('.upd');
+      if (!upd) { upd = document.createElement('div'); upd.className = 'small muted upd'; item.appendChild(upd); }
+      upd.textContent = (it.updated_by || 'someone') + ' · ' + (it.updated_at || '').slice(0, 10);
+      recount(item.closest('.ws'));
+      paintStats(d.summary);
+      flash(status, 'Saved');
+    } catch (e) { flash(status, 'Could not save: ' + e.message, true); }
+  };
+  item.querySelector('.f-status').addEventListener('change', e => save({status: e.target.value}));
+  item.querySelector('.f-decision').addEventListener('change', e => save({decision: e.target.value}));
+  item.querySelector('.f-owner').addEventListener('change', e => save({owner: e.target.value}));
+  item.querySelector('.f-due').addEventListener('change', e => save({due: e.target.value}));
+  item.querySelector('.f-cost').addEventListener('change', e => save({cost: e.target.value}));
+  item.querySelector('.f-paid').addEventListener('change', e => save({paid: e.target.checked ? '1' : '0'}));
+  item.querySelector('.more').addEventListener('click', () => { const m = item.querySelector('.item-more'); m.hidden = !m.hidden; });
+  item.querySelector('.del').addEventListener('click', async e => {
+    const b = e.currentTarget;
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to remove'; return; }
+    const d = await post('/gathering/' + SLUG + '/item', {id, delete: true});
+    const ws = item.closest('.ws'); item.remove(); recount(ws); paintStats(d.summary);
+  });
+}
+document.querySelectorAll('.item').forEach(wireItem);
+document.querySelectorAll('.ws .itemadd').forEach(f => f.addEventListener('submit', async e => {
+  e.preventDefault();
+  const title = f.querySelector('.itemadd-title').value.trim();
+  if (!title) return;
+  try {
+    await post('/gathering/' + SLUG + '/item', {workstream: f.closest('.ws').dataset.ws, title});
+    location.reload();
+  } catch (err) { f.querySelector('.itemadd-title').value = 'Could not add: ' + err.message; }
+}));
+document.getElementById('wsadd').addEventListener('submit', async e => {
+  e.preventDefault();
+  const ws = document.getElementById('ws-name').value.trim(), title = document.getElementById('ws-first').value.trim();
+  if (!ws || !title) return;
+  try { await post('/gathering/' + SLUG + '/item', {workstream: ws, title}); location.reload(); }
+  catch (err) { document.getElementById('ws-first').value = 'Could not add: ' + err.message; }
+});
+
+// Guests
+function wireGuest(gu) {
+  const id = gu.dataset.id;
+  const status = gu.querySelector('.status');
+  const save = async (fields) => {
+    try {
+      const d = await post('/gathering/' + SLUG + '/guest', {id, ...fields});
+      const r = d.guest;
+      gu.className = 'guest r-' + r.rsvp;
+      const sel = gu.querySelector('.g-rsvp'); sel.className = 'g-rsvp rs-' + r.rsvp;
+      gu.querySelector('.gsub').textContent = (r.household ? r.household + ' · ' : '') + r.adults + ' adult' + (r.adults === 1 ? '' : 's') + ', ' + r.kids + ' kid' + (r.kids === 1 ? '' : 's') + (r.contact ? ' · ' + r.contact : '') + (r.notes ? ' · ' + r.notes : '');
+      paintStats(d.summary);
+      flash(status, 'Saved');
+    } catch (e) { flash(status, 'Could not save: ' + e.message, true); }
+  };
+  gu.querySelector('.g-name').addEventListener('change', e => save({name: e.target.value}));
+  gu.querySelector('.g-rsvp').addEventListener('change', e => save({rsvp: e.target.value}));
+  ['household', 'adults', 'kids', 'contact', 'notes'].forEach(k => {
+    gu.querySelector('.g-' + k).addEventListener('change', e => save({[k]: e.target.value}));
+  });
+  gu.querySelector('.more').addEventListener('click', () => { const m = gu.querySelector('.guest-more'); m.hidden = !m.hidden; });
+  gu.querySelector('.del').addEventListener('click', async e => {
+    const b = e.currentTarget;
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to remove'; return; }
+    const d = await post('/gathering/' + SLUG + '/guest', {id, delete: true});
+    gu.remove(); paintStats(d.summary);
+  });
+}
+document.querySelectorAll('.guest').forEach(wireGuest);
+document.getElementById('guestadd').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('guest-name').value.trim();
+  if (!name) return;
+  try { await post('/gathering/' + SLUG + '/guest', {name}); location.reload(); }
+  catch (err) { document.getElementById('guest-name').value = 'Could not add: ' + err.message; }
+});
+document.getElementById('invited-all').addEventListener('click', async e => {
+  const b = e.currentTarget; b.disabled = true;
+  try { await post('/gathering/' + SLUG + '/guest', {invited_all: true}); location.reload(); }
+  catch (err) { b.textContent = 'Could not: ' + err.message; }
+});
+document.getElementById('paste-toggle').addEventListener('click', () => { const f = document.getElementById('paste-form'); f.hidden = !f.hidden; });
+document.getElementById('paste-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const st = document.getElementById('paste-status');
+  st.textContent = 'Adding…';
+  try {
+    const d = await post('/gathering/' + SLUG + '/guest', {paste: document.getElementById('paste-text').value,
+      adults: document.getElementById('paste-adults').value, kids: document.getElementById('paste-kids').value});
+    st.textContent = 'Added ' + d.added; location.reload();
+  } catch (err) { st.textContent = 'Could not add: ' + err.message; }
+});
+</script>
+{% endblock %}

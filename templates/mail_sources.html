@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Mail senders — Family Manager{% endblock %}
+{% block content %}
+<div style="margin-bottom:10px"><a class="small muted" href="/mail">&larr; All mail</a></div>
+<div class="eyebrow">{{ FAMILY_NAME }}</div>
+<h1>Where mail comes from</h1>
+<p class="muted" style="margin-bottom:16px">The senders the sweep reads. New school-looking senders show up below.</p>
+
+{% if suggestions %}
+<div class="card" style="border-left:3px solid var(--accent)">
+  <h2 style="margin-top:0"><svg class="icon"><use href="#ic-mail"/></svg> New senders to review</h2>
+  <p class="small muted">Not covered by a rule yet. Add or dismiss.</p>
+  {% for s in suggestions %}
+  <div class="src-row">
+    <div class="src-main">
+      <div><strong>{{ s.display or s.sender }}</strong> <span class="small muted">&lt;{{ s.sender }}&gt;</span></div>
+      <div class="small muted">{{ s.sample_subject }} · seen {{ s.hits }}×</div>
+    </div>
+    <form method="post" style="display:flex; gap:6px; align-items:center">
+      <input type="hidden" name="action" value="approve">
+      <input type="hidden" name="sender" value="{{ s.sender }}">
+      <select name="kid" class="mini-select">
+        <option value="Both">Both</option>
+        {% for k in kids %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
+      </select>
+      <button class="btn small">Add</button>
+    </form>
+    <form method="post">
+      <input type="hidden" name="action" value="dismiss">
+      <input type="hidden" name="sender" value="{{ s.sender }}">
+      <button class="btn ghost small">Dismiss</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0"><svg class="icon"><use href="#ic-list"/></svg> Senders being read</h2>
+  {% for s in sources %}
+  <div class="src-row">
+    <div class="src-main">
+      <div>
+        <strong>{{ s.name }}</strong>
+        {% if not s.enabled %}<span class="chip s-quiet">off</span>{% else %}<span class="chip s-ok">on</span>{% endif %}
+        {% if s.origin == 'discovered' %}<span class="chip tag">added by you</span>{% endif %}
+      </div>
+      <div class="small muted">
+        {{ s.sender_match }}{% if s.subject_match %} · subject contains “{{ s.subject_match }}”{% endif %}
+        · <span class="chip {{ (s.kid)|kid_class }}">{{ s.kid }}</span>
+        {% set kw = s.keywords | fromjson %}
+        {% if kw %} · only when about: {{ kw[:6]|join(', ') }}…{% endif %}
+      </div>
+    </div>
+    <form method="post">
+      <input type="hidden" name="action" value="toggle">
+      <input type="hidden" name="key" value="{{ s.key }}">
+      <button class="btn ghost small">{{ 'Turn off' if s.enabled else 'Turn on' }}</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+
+<style>
+.src-row { display:flex; gap:12px; align-items:center; padding:11px 0; border-bottom:1px dashed var(--line); flex-wrap:wrap; }
+.src-row:last-child { border-bottom:0; }
+.src-main { flex:1 1 260px; min-width:0; }
+.src-main > div:first-child { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.mini-select { font-size:12px; padding:5px 8px; border:1px solid var(--line); border-radius:4px; background:#fff; }
+</style>
+{% endblock %}

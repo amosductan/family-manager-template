@@ -1,0 +1,694 @@
+{% extends "base.html" %}
+{% block title %}{{ trip.name if trip else 'Trip' }} — Family Manager{% endblock %}
+
+{# ---------------------------------------------------------------------------
+   Two questions, two chips, never one. "Is it happening" and "does anyone owe a
+   booking" are independent: the fireworks are free and unreservable, the rental car
+   is happening and unbooked. One status column could only ever lie about one of them.
+--------------------------------------------------------------------------- #}
+{% macro state_chips(i) %}
+<span class="chip pl-{{ i.plan }}">{{ plan_labels[i.plan] }}</span>
+<span class="chip bk-{{ i.booking }}">
+  {%- if i.booking == 'todo' and i.deadline %}Book by {{ i.deadline }}
+  {%- elif i.booking == 'booked' and i.confirmation %}Booked · {{ i.confirmation }}
+  {%- else %}{{ booking_labels[i.booking] }}{% endif -%}
+</span>
+{% endmacro %}
+
+{# The when/how-long editor. Every item has one — including the ones that arrived from a
+   confirmation email — because until this existed nothing already on the page could be
+   moved, timed, or deliberately left untimed. #}
+{% macro when_editor(i) %}
+<div class="whenedit" id="when-{{ i.id }}">
+  <form method="post" action="/trip/{{ trip.slug }}/item/{{ i.id }}/when"
+        style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;width:100%">
+    <label>Day
+      <select name="day">
+        <option value="">No day yet — back to the shelf</option>
+        {% for d in days %}
+        <option value="{{ d.day }}" {{ 'selected' if i.day == d.day }}>{{ d.label }} {{ d.date_label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Starts at
+      <input type="time" name="start_time" value="{{ i.start_time or '' }}">
+    </label>
+    {# No clock is a real answer, not a blank waiting to be filled in. #}
+    <label>Or just
+      <select name="part">
+        <option value="">any time</option>
+        {% for p in parts %}
+        <option value="{{ p }}" {{ 'selected' if i.part == p }}>{{ part_labels[p] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>How long
+      <select name="duration_min">
+        <option value="">not set</option>
+        {% for m, lbl in [(30,'30 min'),(45,'45 min'),(60,'1 h'),(90,'1 h 30'),(120,'2 h'),(180,'3 h'),(240,'half a day')] %}
+        <option value="{{ m }}" {{ 'selected' if i.duration_min == m }}>{{ lbl }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <input type="hidden" name="who" class="who-field" value="">
+    <input type="hidden" name="view" value="{{ view }}">
+    <button class="mini solid">Save</button>
+  </form>
+</div>
+{% endmacro %}
+
+{% macro plan_btn(i, to, label, solid=False) %}
+<form method="post" action="/trip/{{ trip.slug }}/item/{{ i.id }}/plan">
+  <input type="hidden" name="plan" value="{{ to }}">
+  <input type="hidden" name="who" class="who-field" value="">
+  <input type="hidden" name="view" value="{{ view }}">
+  <button class="mini {{ 'solid' if solid }}">{{ label }}</button>
+</form>
+{% endmacro %}
+
+{% macro booking_btn(i, to, label) %}
+<form method="post" action="/trip/{{ trip.slug }}/item/{{ i.id }}/booking">
+  <input type="hidden" name="booking" value="{{ to }}">
+  <input type="hidden" name="who" class="who-field" value="">
+  <input type="hidden" name="view" value="{{ view }}">
+  <button class="mini">{{ label }}</button>
+</form>
+{% endmacro %}
+
+{# One row on a day. #}
+{# How far this is from the base. Three outcomes, all of them said out loud:
+   a measured drive, a place we could not put on the map (with the reason), or a
+   distance nobody has measured YET. Never a blank, and never a zero standing in for
+   an unknown -- "0 min away" is the most dangerous thing this page could render. #}
+{% macro distance_chip(i) %}
+  {%- if base_row and i.id == base_row.id %}
+  <span class="chip tag">home base</span>
+  {%- elif from_base.get(i.id) %}
+  <span class="chip tag" title="Driving, from {{ base_row.title }}">
+    {{ geo.fmt_mins(from_base[i.id].seconds) }} from base · {{ geo.fmt_km(from_base[i.id].meters) }}</span>
+  {%- elif i.geo_status == 'ok' %}
+  <span class="chip tag soft" title="Press Refresh distances on the Logistics page">drive not measured yet</span>
+  {%- elif i.location %}
+  <span class="chip tag soft">{{ distance_note(i) }}</span>
+  {%- endif -%}
+{% endmacro %}
+
+{# Opens the phone's own maps app. Costs the page nothing -- no tiles, no script, no
+   network call unless somebody actually taps it. #}
+{% macro directions_link(i) %}
+  {%- if i.lat is not none and i.geo_status == 'ok' %}
+  <a class="mini" target="_blank" rel="noopener"
+     href="https://www.google.com/maps/dir/?api=1{% if base_row %}&origin={{ base_row.lat }},{{ base_row.lng }}{% endif %}&destination={{ i.lat }},{{ i.lng }}">Directions</a>
+  {%- endif -%}
+{% endmacro %}
+
+{# The link, where you can actually reach it. It already existed on every row that
+   had one -- but on the timeline it lived INSIDE the collapsed <details>, so learning
+   what something was took an expand and then a hunt. On a phone, at a ticket booth,
+   that is the difference between a link and no link.
+
+   The wording follows the booking state, because "Learn more" on a row you have already
+   paid for sends you to read about a thing you own. #}
+{% macro learn_link(i) %}
+  {%- if i.url %}
+  <a class="mini" href="{{ i.url }}" target="_blank" rel="noopener">
+    {{- 'Open the booking' if i.booking == 'booked' else 'Learn more' -}}
+  </a>
+  {%- endif -%}
+{% endmacro %}
+
+{# The forecast, and what it means for THIS day's plan.
+
+   A forecast strip on its own is decoration. The line that changes a decision is
+   "54% rain and three outdoor things on this day", which needs the forecast and the
+   shelter classification together -- app.py._weather_for_days computes it once so the
+   page cannot draw two versions of the same judgement.
+
+   A day with no stored forecast says so. It is never drawn as a fine day, because a
+   blank strip and a clear sky look identical and only one of them is honest. #}
+{% macro wxstrip(d) %}
+  {%- if d.wx %}
+  <div class="wx wx-{{ d.wx.bucket }}{{ ' wx-warn' if d.wx.wet }}">
+    <span class="wx-t">{{ d.wx.text }}</span>
+    {% if d.wx.temp_max is not none %}<span class="wx-deg">{{ d.wx.temp_max | round | int }}°<span class="lo">/{{ d.wx.temp_min | round | int }}°F</span></span>{% endif %}
+    {% if d.wx.rain_pct is not none %}<span class="wx-pop{{ ' hot' if d.wx.wet }}">{{ d.wx.rain_pct }}% rain</span>
+    {%- else %}<span class="wx-pop soft">chance of rain not forecast</span>{% endif %}
+    {% if d.wx.wind_kmh %}<span class="soft">wind {{ d.wx.wind_kmh | round | int }} km/h</span>{% endif %}
+  </div>
+  {% if d.wx_note %}<div class="wx-note">{{ d.wx_note }}</div>{% endif %}
+  {% if d.wx_bench %}
+  <div class="wx-bench">
+    <b>If it does rain</b> — indoor things already on your shelf:
+    {% for b in d.wx_bench %}<a href="#item-{{ b.id }}">{{ b.title | truncate(38, True) }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+  {%- else %}
+  <div class="wx wx-unknown"><span class="wx-t soft">No forecast stored for this day</span></div>
+  {%- endif -%}
+{% endmacro %}
+
+{# The chance of rain at the hour the thing actually happens. Only shown where it could
+   change something: an outdoor item, on a day worth worrying about. The DAY figure
+   cannot tell you whether 8pm is the wet part of a 54% day. #}
+{% macro wxhour(d, i) %}
+  {%- if i.shelter == 'outdoor' and d.wx and (d.wx.wet or d.wx.iffy) %}
+    {%- set h = (d.wx_hourly or {}).get(i.id) %}
+    {%- if h and h.rain_pct is not none %}
+    <span class="chip tag{{ ' hot' if h.rain_pct >= 50 }}">{{ h.rain_pct }}% rain at {{ h.hour }}</span>
+    {%- endif %}
+  {%- endif -%}
+{% endmacro %}
+
+{% macro item(i, gap=None, d=None) %}
+{% if gap %}
+<div class="gapline">↓ {{ gap.m }} min free{% if gap.need %} · about {{ gap.need }} min of it is the drive{% endif %}</div>
+{% endif %}
+<div class="ti {{ 'is-penciled' if i.plan == 'penciled' }}" id="item-{{ i.id }}" data-item="{{ i.id }}">
+  <button class="grip" type="button" aria-label="Drag to another day" title="Drag to move">
+    <svg class="icon"><use href="#ic-grip"></use></svg></button>
+  <span class="when">
+    {%- if i.start_time %}{{ i.start_time | clock }}
+      {%- if i.duration_min %}<span class="to">to {{ i.start_time | endclock(i.duration_min) }}</span>{% endif %}
+    {%- else %}<span class="soft">{{ part_labels.get(i.part, 'Any time') }}</span>{% endif -%}
+  </span>
+  <details>
+    <summary>{{ i.title }}{% if i.glance %}<span class="glance">{{ i.glance }}</span>{% endif %}</summary>
+    <div class="ti-body">
+      {% if i.detail %}<p>{{ i.detail }}</p>{% endif %}
+      {% if i.location %}<p><b>Where:</b> {{ i.location }}</p>{% endif %}
+      <div class="kv">
+        {% if i.confirmation %}<span><b>Confirmation:</b> {{ i.confirmation }}</span>{% endif %}
+        {% if i.cost %}<span><b>Cost:</b> {{ i.cost }}</span>{% endif %}
+        {% if i.paid %}<span><b>Paid:</b> {{ i.paid }}</span>{% endif %}
+      </div>
+      {% if i.url %}<p><a href="{{ i.url }}" target="_blank" rel="noopener">Open the booking</a></p>{% endif %}
+      {% if i.booking == 'todo' and i.open_reason %}
+      <div class="openbox">
+        <strong>Not booked{% if i.deadline %} · by {{ i.deadline }}{% endif %}:</strong>
+        <span style="white-space:pre-wrap">{{ i.open_reason }}</span>
+      </div>
+      {% elif i.open_reason %}
+      <p class="small muted" style="white-space:pre-wrap">{{ i.open_reason }}</p>
+      {% endif %}
+      {% if i.booking != 'todo' %}
+      <div class="rowacts" style="margin-bottom:8px">
+        {%- if i.booking == 'booked' %}{{ booking_btn(i, 'todo', 'Not booked after all') }}
+        {%- else %}{{ booking_btn(i, 'todo', 'This needs booking') }}{% endif %}
+      </div>
+      {% endif %}
+      <div class="small muted">source: {{ i.source }}{% if i.updated_by %} · last changed by {{ i.updated_by }}{% endif %}</div>
+    </div>
+  </details>
+  {{ state_chips(i) }}{{ distance_chip(i) }}{% if d %}{{ wxhour(d, i) }}{% endif %}
+  <div class="rowacts">
+    {{ learn_link(i) }}
+    {{ directions_link(i) }}
+    <button class="mini" type="button" data-toggle="when-{{ i.id }}">When</button>
+    {% if i.plan == 'penciled' %}{{ plan_btn(i, 'doing', "We're doing this", True) }}{% endif %}
+    {% if i.plan == 'doing' %}{{ plan_btn(i, 'penciled', 'Back to penciled') }}{% endif %}
+    {{ plan_btn(i, 'idea', 'Off the day') }}
+    {{ plan_btn(i, 'dropped', 'Not this trip') }}
+    {% if i.booking == 'todo' %}{{ booking_btn(i, 'booked', 'Mark booked') }}{{ booking_btn(i, 'none', 'Nothing to book') }}{% endif %}
+  </div>
+  {{ when_editor(i) }}
+</div>
+{% endmacro %}
+
+{# A candidate on the shelf. Same facts, less machinery — you are choosing here, not
+   scheduling. #}
+{% macro idea(i) %}
+<article class="ideacard" id="item-{{ i.id }}" data-item="{{ i.id }}">
+  <button class="grip" type="button" aria-label="Drag onto a day" title="Drag onto a day">
+    <svg class="icon"><use href="#ic-grip"></use></svg></button>
+  <div class="nm">{{ i.title }}</div>
+  {% if i.glance %}<div class="gl">{{ i.glance }}</div>{% endif %}
+  <div class="facts">
+    {{ state_chips(i) }}
+    {% if i.duration_min %}<span class="chip tag">{{ i.duration_min | howlong }}</span>{% endif %}
+    <span class="chip tag">
+      {%- if i.cost_est is none %}not priced{% elif i.cost_est == 0 %}free
+      {%- else %}{{ i.cost_est | money(i.currency) }} for four{% endif -%}
+    </span>
+    {% if i.area %}<span class="chip tag">{{ areas[i.area] }}</span>{% endif %}
+    {% if i.shelter and i.shelter != 'na' %}<span class="chip tag sh-{{ i.shelter }}">{{ shelters[i.shelter] }}</span>{% endif %}
+    {{ distance_chip(i) }}
+  </div>
+  {% if i.detail %}<div class="gl" style="margin-top:8px">{{ i.detail }}</div>{% endif %}
+  {% if i.open_reason %}<div class="gl" style="margin-top:6px;white-space:pre-wrap">{{ i.open_reason }}</div>{% endif %}
+  <div class="rowacts">
+    <button class="mini solid" type="button" data-toggle="when-{{ i.id }}">Pencil in</button>
+    {{ learn_link(i) }}
+    {{ directions_link(i) }}
+    {% if i.plan == 'dropped' %}{{ plan_btn(i, 'idea', 'Put it back') }}
+    {# Gone means gone, so it only exists on a row already dropped: drop, then delete.
+       For the fat-fingered add -- a real decision stays on this list. #}
+    <form method="post" action="/trip/{{ trip.slug }}/item/{{ i.id }}/delete">
+      <input type="hidden" name="who" class="who-field" value="">
+      <input type="hidden" name="view" value="{{ view }}">
+      <button class="mini">Delete forever</button>
+    </form>
+    {% else %}{{ plan_btn(i, 'dropped', 'Not this trip') }}{% endif %}
+  </div>
+  {{ when_editor(i) }}
+</article>
+{% endmacro %}
+
+
+{% block content %}
+{% if not trip %}
+<h1>No trip yet</h1>
+<div class="card">
+  <p class="muted">Start one on <a href="/trips">Trips</a> — name, dates, who's going — and this page is ready.</p>
+</div>
+{% else %}
+
+{# The cover. Full-bleed footage of the place itself -- the place sells the trip better
+   than any copy could. The page dissolves out of the mist at the bottom edge; the facts
+   card rises out of it. Media arrives by convention (static/trips/<slug>/hero.mp4 +
+   hero.jpg) and every layer is optional: no files, and this renders as a quiet slate
+   cover with the same type. #}
+<section class="triphero{{ ' bare' if not media }}">
+  {% if media and media.poster %}<img class="bg" src="{{ media.poster }}" alt="">{% endif %}
+  {% if media and media.video %}
+  {# muted+playsinline is what iOS requires to autoplay; the poster img underneath is
+     the answer everywhere autoplay is refused (low-power mode, reduced motion). #}
+  <video class="bg" id="heromedia" autoplay muted loop playsinline preload="auto"
+         {% if media.poster %}poster="{{ media.poster }}"{% endif %}>
+    <source src="{{ media.video }}" type="video/mp4">
+  </video>
+  {% endif %}
+  <div class="scrim"></div>
+  <div class="heroinner">
+    <div class="heromain">
+      <div class="eyebrow">Family trip · {{ date_range }}</div>
+      <h1>{{ trip.name }}</h1>
+      <div class="herosub">{{ trip.destination }} · {{ trip.party }}</div>
+    </div>
+    {% if countdown %}
+    <div class="herocount">
+      <div class="n">{{ countdown.n }}</div>
+      <div class="w">{{ countdown.word }}</div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="mist"></div>
+</section>
+
+<div class="card tripfacts">
+  {% if trip.notes %}<p class="small" style="margin-bottom:2px">{{ trip.notes }}</p>{% endif %}
+  <div class="trip-facts">
+    <div><div class="lbl">Still to spend</div>
+      <div class="val">{{ totals.cost | money('CAD') }}
+        {%- if totals.unpriced %} <span class="small muted">excludes {{ totals.unpriced }} nobody priced</span>{% endif %}</div></div>
+    {% if spent %}
+    <div><div class="lbl">What the trip cost</div>
+      <div class="val"><a href="/trip/{{ trip.slug }}/expenses">{{ spent.whole | money('USD') }}</a>
+        <span class="small muted">{{ spent.before | money('USD') }} booked ahead + {{ (spent.during + spent.fees) | money('USD') }} on the ground
+        {%- if spent.pending_n %}, {{ spent.pending_n }} still pending{% endif %}</span></div></div>
+    {% endif %}
+    <div><div class="lbl">Still to book</div><div class="val">{{ totals.owed }}</div></div>
+    <div><div class="lbl">Penciled, not settled</div><div class="val">{{ totals.penciled }}</div></div>
+    <div><div class="lbl">Ideas on the shelf</div><div class="val">{{ totals.shelf }}</div></div>
+    <div><div class="lbl">Everything</div>
+      <div class="val"><a class="btn ghost small" href="/trip/{{ trip.slug }}.xlsx">
+        <svg class="icon"><use href="#ic-download"></use></svg> Spreadsheet</a></div></div>
+  </div>
+</div>
+
+<div class="modebar">
+  <div class="viewswitch">
+    <a href="/trip/{{ trip.slug }}" class="{{ 'on' if view == 'plan' }}">Plan the days</a>
+    <a href="/trip/{{ trip.slug }}?view=sheet" class="{{ 'on' if view == 'sheet' }}">Day sheet</a>
+    <a href="/trip/{{ trip.slug }}/logistics">How far apart</a>
+    <a href="/trip/{{ trip.slug }}/expenses">What it cost</a>
+    <a href="/trips" class="alltrips">All trips</a>
+  </div>
+  {# A forecast is a MODEL and it goes stale. Its age is shown, not hidden -- a
+     five-day-old forecast rendered as today's is the same failure as a stale
+     calendar that looks perfectly healthy. #}
+  <form method="post" action="/trip/{{ trip.slug }}/weather" class="wxform">
+    <span class="small muted">{% if wx.age %}Forecast {{ wx.age }}{% else %}No forecast yet{% endif %}</span>
+    <button class="mini" type="submit">Refresh</button>
+  </form>
+  <div class="spacer"></div>
+  <span class="small muted">Changes are recorded against whoever made them</span>
+</div>
+
+{# ---------------------------------------------------------------- add your own
+   At the top, never collapsed at the bottom. Being able to put a row in without asking
+   anyone is the point of the page. #}
+<div class="card addwrap" id="addwrap">
+  <div class="head">
+    <button class="btn" type="button" id="addtoggle">Add something of your own</button>
+    <p>Put in what you know; leave the rest blank.</p>
+  </div>
+  <form id="addform" method="post" action="/trip/{{ trip.slug }}/add" hidden>
+    <div class="addgrid">
+      <label>What is it
+        <input name="title" required placeholder="Hotel pool morning" autocomplete="off"></label>
+      <label>Which day
+        <select name="day">
+          <option value="">Leave it on the shelf</option>
+          {% for d in days %}<option value="{{ d.day }}">{{ d.label }} {{ d.date_label }}</option>{% endfor %}
+        </select></label>
+      <label>Starts at <input type="time" name="start_time"></label>
+      <label>Or just
+        <select name="part">
+          <option value="">any time</option>
+          {% for p in parts %}<option value="{{ p }}">{{ part_labels[p] }}</option>{% endfor %}
+        </select></label>
+      <label>How long
+        <select name="duration_min">
+          <option value="">not sure</option>
+          {% for m, lbl in [(30,'30 min'),(45,'45 min'),(60,'1 h'),(90,'1 h 30'),(120,'2 h'),(180,'3 h'),(240,'half a day')] %}
+          <option value="{{ m }}">{{ lbl }}</option>{% endfor %}
+        </select></label>
+      <label>Where
+        <select name="area">
+          {% for k, lbl in areas.items() %}<option value="{{ k }}">{{ lbl }}</option>{% endfor %}
+        </select></label>
+      <label>Roughly what it costs
+        <input name="cost" inputmode="decimal" placeholder="CA$ — blank if you don't know"></label>
+      <label>Is it happening
+        <select name="plan">
+          <option value="doing">We're doing it</option>
+          <option value="penciled">Penciled in</option>
+          <option value="idea" selected>Just an idea</option>
+        </select></label>
+    </div>
+    <label class="wide">Anything worth remembering
+      <textarea name="detail" rows="2" placeholder="Strollers not allowed inside. Book before you fly. Whatever you'd want to read at the door."></textarea></label>
+    <input type="hidden" name="who" class="who-field" value="">
+    <input type="hidden" name="view" value="{{ view }}">
+    <div class="addacts">
+      <button class="btn" type="submit">Add it</button>
+      <button class="btn ghost" type="button" id="addcancel">Cancel</button>
+      <span class="note">Leave the cost blank if you don't know it — it shows as
+        <em>not priced</em> and stays out of the totals rather than guessing a number.</span>
+    </div>
+  </form>
+</div>
+
+{% if view == 'sheet' %}
+{# ---------------------------------------------------------------- day sheet #}
+<p class="small muted" style="margin-bottom:14px">Only what's settled.</p>
+{% for d in days %}
+{% set doing = d.entries | selectattr('plan', 'equalto', 'doing') | list %}
+{% set pend = d.entries | selectattr('plan', 'equalto', 'penciled') | list %}
+<div class="card">
+  <h2 style="margin:0 0 6px;border-bottom:1px solid var(--line);padding-bottom:8px">
+    {{ d.label }} · {{ d.date_label }}</h2>
+  {{ wxstrip(d) }}
+  {% if doing %}
+    {% for i in doing %}
+    <div class="sline">
+      <div class="t">{% if i.start_time %}{{ i.start_time | clock }}
+        {%- else %}<span class="soft">{{ part_labels.get(i.part, 'Any time') }}</span>{% endif %}</div>
+      <div class="c">
+        <div>{{ i.title }}</div>
+        <div class="d">
+          {%- if i.glance %}{{ i.glance }}{% endif %}
+          {%- if i.location %} · {{ i.location }}{% endif %}
+          {%- if i.confirmation %} · confirmation {{ i.confirmation }}{% endif %}
+        </div>
+      </div>
+      <div class="money">{% if i.cost_est %}{{ i.cost_est | money(i.currency) }}
+        {%- elif i.cost_est is none %}<span class="muted">not priced</span>{% endif %}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="small muted" style="padding:10px 0">Nothing settled for this day yet.</p>
+  {% endif %}
+  <div class="sheetfoot">
+    <span>Out of the house <b>{{ d.a.span | howlong or '—' }}</b></span>
+    <span>Costs <b>{% if d.a.cost %}{{ d.a.cost | money('CAD') }}{% else %}—{% endif %}</b>{% if d.a.unpriced %} <span class="muted">+ {{ d.a.unpriced }} nobody priced</span>{% endif %}</span>
+    {% if pend %}<span>Still penciled: <b>{{ pend | map(attribute='title') | join(', ') }}</b></span>{% endif %}
+    <span>{% if d.a.gcal == 'sent' %}On Google · {{ partner_name }} invited
+      {%- elif d.a.gcal == 'stale' %}On Google, but this day has changed since
+      {%- elif d.a.gcal == 'part' %}Partly on Google
+      {%- else %}Not on Google yet{% endif %}</span>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+{# ---------------------------------------------------------------- the workspace #}
+
+{% if owed %}
+{# Above the timeline on purpose: two of these fall due BEFORE the trip starts, so a
+   reader who only scrolls the days meets them too late. #}
+<h2>Somebody still owes a booking</h2>
+<div class="card">
+  {% for i in owed %}{{ item(i) }}{% endfor %}
+</div>
+{% endif %}
+
+<div class="board">
+  <div>
+    {% for d in days %}
+    <section class="daycard" id="day-{{ d.day }}" data-drop="{{ d.day }}">
+      <div class="dayhead">
+        <span class="dow">{{ d.label }}</span><span class="dt">{{ d.date_label }}</span>
+        <div class="meter">
+          <span>Out <b>{{ d.a.span | howlong or '—' }}</b></span>
+          <span>Doing <b>{% if d.a.out %}{{ d.a.out | howlong }}{% if d.a.loose_min %} + {{ d.a.loose_min | howlong }}{% endif %}
+            {%- elif d.a.loose_min %}{{ d.a.loose_min | howlong }}{% else %}—{% endif %}</b>
+            {%- if d.a.loose_min %} <span class="muted">with no time set</span>{% endif %}</span>
+          <span>Costs <b>{% if d.a.cost %}{{ d.a.cost | money('CAD') }}{% else %}—{% endif %}</b>{% if d.a.unpriced %} <span class="muted">+ {{ d.a.unpriced }} nobody priced</span>{% endif %}</span>
+        </div>
+        <div class="dayacts">
+          <button class="mini" type="button" data-addhere="{{ d.day }}">Add to this day</button>
+          {% if d.a.gcal == 'empty' %}
+            <button class="mini" disabled title="Nothing on this day is settled yet">Send to Google</button>
+          {% elif d.a.gcal == 'sent' %}
+            <span class="chip bk-booked">On Google · {{ partner_name }} invited</span>
+            <button class="mini" type="button" data-gcal-remove="{{ d.day }}">Take it off</button>
+          {% else %}
+            <button class="mini {{ 'solid' if d.a.gcal in ('stale','part') }}" type="button" data-gcal="{{ d.day }}">
+              {% if d.a.gcal == 'stale' %}Update Google · this day changed
+              {%- elif d.a.gcal == 'part' %}Send the rest to Google
+              {%- else %}Send to Google · invite {{ partner_name }}{% endif %}
+            </button>
+          {% endif %}
+        </div>
+      </div>
+      <div class="daybody">
+        {{ wxstrip(d) }}
+        {% for f in d.a.flags %}<span class="flag {{ f.kind }}">{{ f.text }}</span>{% endfor %}
+        {% for i in d.entries %}{{ item(i, d.a.gaps.get(i.id), d) }}{% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+
+    {% if loose %}
+    {# Settled but not tied to one day. Not shelf material: nobody is choosing whether to
+       bring the car seats. #}
+    <section class="daycard" style="margin-top:16px" data-drop="loose">
+      <div class="dayhead"><span class="dow">Whole trip</span>
+        <span class="dt">no single day</span></div>
+      <div class="daybody">{% for i in loose %}{{ item(i) }}{% endfor %}</div>
+    </section>
+    {% endif %}
+  </div>
+
+  <aside class="shelf" data-drop="shelf">
+    <h2 style="margin-top:0">Ideas</h2>
+    <p class="small muted" style="margin-bottom:12px">Ideas, not commitments. <em>Pencil in</em> gives one a day. {% if options_checked %}Prices checked {{ options_checked }}.{% endif %}</p>
+    <div class="shelflist">
+      {% for i in shelf %}{{ idea(i) }}{% endfor %}
+      {% if not shelf %}<p class="small muted">Nothing on the shelf.</p>{% endif %}
+      {% if dropped %}
+      <div class="small muted" style="margin:16px 0 8px;padding-top:12px;border-top:1px solid var(--line)">
+        Decided against — kept so nobody rediscovers it at the door</div>
+      {% for i in dropped %}{{ idea(i) }}{% endfor %}
+      {% endif %}
+    </div>
+  </aside>
+</div>
+{% endif %}
+
+<div id="gcal-bar"><span class="txt"></span><div class="track"><div class="fill"></div></div></div>
+
+<script>
+// ---- the cover ---------------------------------------------------------------
+// The loop only spends battery while it is on screen; both parents read this page
+// on phones, and the video is decoration, not content.
+var hv = document.getElementById('heromedia');
+if (hv && 'IntersectionObserver' in window) {
+  new IntersectionObserver(function (e) {
+    if (e[0].isIntersecting) { hv.play().catch(function () {}); } else { hv.pause(); }
+  }, {threshold: 0.05}).observe(hv);
+}
+
+// ---- drag a card onto a day -------------------------------------------------
+// Pointer events, not HTML5 drag-and-drop: the native API does not exist on touch,
+// and this page's primary screen is a phone. The grip is the only place a drag can
+// start (touch-action:none there alone), so the page itself still scrolls normally.
+// The buttons remain the full path -- dragging is a shortcut, never the only way.
+(function () {
+  var drag = null, ghost = null, over = null, scrollDir = 0, raf = null;
+
+  function clearOver() {
+    if (over) { over.classList.remove('dropover'); over = null; }
+  }
+  function endDrag(commit) {
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    scrollDir = 0;
+    if (ghost) { ghost.remove(); ghost = null; }
+    document.body.classList.remove('dragging');
+    if (drag && drag.card) drag.card.classList.remove('draglift');
+    var target = over, d = drag;
+    clearOver();
+    drag = null;
+    if (!commit || !target || !d) return;
+    var zone = target.dataset.drop;
+    var form = new FormData();
+    if (zone === 'shelf' || zone === 'loose') form.append('to', zone);
+    else form.append('day', zone);
+    form.append('who', localStorage.getItem('fm_who') || '');
+    say('Moving it…', 50);
+    fetch('/trip/{{ trip.slug }}/item/' + d.id + '/move', {method: 'POST', body: form})
+      .then(function (r) { return r.json().then(function (j) { return {ok: r.ok, j: j}; }); })
+      .then(function (res) {
+        if (!res.ok) { say('Could not move it: ' + (res.j.error || 'error'), 100); return; }
+        location.reload();
+      })
+      .catch(function (e) { say('Could not move it: ' + e, 100); });
+  }
+
+  function autoscroll() {
+    if (scrollDir) window.scrollBy(0, scrollDir * 14);
+    raf = requestAnimationFrame(autoscroll);
+  }
+
+  document.querySelectorAll('.grip').forEach(function (g) {
+    g.addEventListener('pointerdown', function (ev) {
+      ev.preventDefault();
+      var card = g.closest('[data-item]');
+      if (!card) return;
+      drag = {id: card.dataset.item, card: card, x: ev.clientX, y: ev.clientY, live: false};
+      g.setPointerCapture(ev.pointerId);
+    });
+    g.addEventListener('pointermove', function (ev) {
+      if (!drag) return;
+      if (!drag.live) {
+        if (Math.abs(ev.clientX - drag.x) + Math.abs(ev.clientY - drag.y) < 7) return;
+        drag.live = true;
+        document.body.classList.add('dragging');
+        ghost = drag.card.cloneNode(true);
+        ghost.classList.add('dragghost');
+        ghost.style.width = Math.min(drag.card.offsetWidth, 320) + 'px';
+        document.body.appendChild(ghost);
+        drag.card.classList.add('draglift');
+        raf = requestAnimationFrame(autoscroll);
+      }
+      ghost.style.left = (ev.clientX + 10) + 'px';
+      ghost.style.top = (ev.clientY - 14) + 'px';
+      // A drop zone under the finger, ghost excluded (pointer-events:none on it).
+      var el = document.elementFromPoint(ev.clientX, ev.clientY);
+      var z = el && el.closest ? el.closest('[data-drop]') : null;
+      if (z !== over) { clearOver(); if (z) { over = z; z.classList.add('dropover'); } }
+      // Near an edge, scroll the page -- days below the fold are unreachable otherwise.
+      scrollDir = ev.clientY < 80 ? -1 : (ev.clientY > window.innerHeight - 80 ? 1 : 0);
+    });
+    g.addEventListener('pointerup', function () { if (drag) endDrag(drag.live); });
+    g.addEventListener('pointercancel', function () { endDrag(false); });
+  });
+})();
+
+// ---- the when/pencil editors ------------------------------------------------
+document.querySelectorAll('[data-toggle]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var el = document.getElementById(b.dataset.toggle);
+    if (!el) return;
+    el.classList.toggle('open');
+    if (el.classList.contains('open')) el.querySelector('select,input').focus();
+  });
+});
+
+// ---- add your own -----------------------------------------------------------
+var addForm = document.getElementById('addform');
+var addToggle = document.getElementById('addtoggle');
+function openAdd(day) {
+  addForm.hidden = false;
+  addToggle.textContent = 'Close';
+  if (day) addForm.elements.day.value = day;
+  addForm.elements.title.focus();
+  document.getElementById('addwrap').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+function closeAdd() { addForm.hidden = true; addToggle.textContent = 'Add something of your own'; }
+addToggle.addEventListener('click', function () { addForm.hidden ? openAdd(null) : closeAdd(); });
+document.getElementById('addcancel').addEventListener('click', closeAdd);
+document.querySelectorAll('[data-addhere]').forEach(function (b) {
+  b.addEventListener('click', function () { openAdd(b.dataset.addhere); });
+});
+
+// ---- push a day to Google ---------------------------------------------------
+// One item per request so the bar can count real i/N. A dozen round trips behind a
+// spinner that says nothing is exactly the wait this app is not allowed to have.
+var bar = document.getElementById('gcal-bar');
+function say(t, pct) {
+  bar.style.display = 'block';
+  bar.querySelector('.txt').textContent = t;
+  bar.querySelector('.fill').style.width = (pct || 0) + '%';
+}
+async function pushDay(day, btn) {
+  btn.disabled = true;
+  var label = btn.textContent;
+  btn.textContent = 'Sending…';
+  try {
+    var plan = await (await fetch('/trip/{{ trip.slug }}/day/' + day + '/gcal.json')).json();
+    var todo = plan.items.filter(function (i) { return !i.on_calendar || i.changed; });
+    if (!todo.length) { say('Everything on that day is already on the calendar.', 100); btn.disabled = false; btn.textContent = label; return; }
+    for (var n = 0; n < todo.length; n++) {
+      say('Sending ' + (n + 1) + ' of ' + todo.length + ' — ' + todo[n].title,
+          Math.round(n / todo.length * 100));
+      var r = await fetch('/trip/{{ trip.slug }}/item/' + todo[n].id + '/gcal', {method: 'POST'});
+      var j = await r.json();
+      if (!r.ok) { say('Stopped at "' + todo[n].title + '": ' + (j.error || r.status), 100); btn.disabled = false; btn.textContent = label; return; }
+    }
+    say('Sent ' + todo.length + ' to Google and invited ' + plan.partner + '. Reloading…', 100);
+    location.reload();
+  } catch (e) {
+    say('Could not reach the calendar: ' + e, 100);
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+document.querySelectorAll('[data-gcal]').forEach(function (b) {
+  b.addEventListener('click', function () { pushDay(b.dataset.gcal, b); });
+});
+document.querySelectorAll('[data-gcal-remove]').forEach(function (b) {
+  b.addEventListener('click', async function () {
+    b.disabled = true; say('Taking that day off the calendar…', 40);
+    var r = await fetch('/trip/{{ trip.slug }}/day/' + b.dataset.gcalRemove + '/gcal-remove', {method: 'POST'});
+    var j = await r.json();
+    if (!r.ok) { say('Could not remove it: ' + (j.error || r.status), 100); b.disabled = false; return; }
+    say('Removed ' + j.removed + '. Reloading…', 100);
+    location.reload();
+  });
+});
+</script>
+{% endif %}
+
+<style>
+  /* The forecast strip. Color carries severity; the words carry the meaning, so it
+     still reads correctly with color stripped or in a screenshot. */
+  .wx { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:baseline;
+        padding:6px 10px; margin:0 0 8px; border-radius:8px;
+        background:rgba(128,128,128,.10); font-size:.86rem; }
+  .wx-t { font-weight:600; }
+  .wx-deg .lo { opacity:.6; font-weight:400; }
+  .wx-pop.hot { color:var(--err, #b3261e); font-weight:700; }
+  .wx-warn { background:rgba(179,38,30,.12); }
+  .wx-wet, .wx-storm { background:rgba(60,110,200,.13); }
+  .wx-unknown { background:rgba(128,128,128,.07); }
+  .wx-note { font-size:.84rem; margin:-2px 0 8px; padding:0 10px; opacity:.9; }
+  .wx-bench { font-size:.82rem; margin:-4px 0 10px; padding:6px 10px;
+              border-left:2px solid rgba(128,128,128,.35); }
+  .wx-bench a { margin-right:2px; }
+  .chip.hot { border-color:rgba(179,38,30,.5); }
+  .wxform { display:flex; gap:8px; align-items:center; }
+  @media (max-width: 720px) { .wx { font-size:.82rem; } }
+</style>
+
+{% endblock %}

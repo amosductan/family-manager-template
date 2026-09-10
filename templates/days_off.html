@@ -1,0 +1,517 @@
+{% extends "base.html" %}
+{% block title %}Days off — Family Manager{% endblock %}
+{% block content %}
+<p class="eyebrow">Coverage</p>
+<h1>Days off</h1>
+
+<div class="card">
+  <div class="statrow">
+    <div class="stat"><div class="num" id="stat-tbd">{{ counts.tbd }}</div><div class="lbl">Nobody assigned</div></div>
+    <div class="stat"><div class="num">{{ counts.full }}</div><div class="lbl">Days off</div></div>
+    <div class="stat"><div class="num">{{ counts.early }}</div><div class="lbl">Half days</div></div>
+    <div class="stat"><div class="num">{{ counts.on_calendar }}</div><div class="lbl">On the calendar</div></div>
+  </div>
+  <p class="small muted" style="margin-top:6px">Every day either kid is out of school. A half day is a pickup, not a day off.</p>
+  <p class="small muted" style="margin-top:8px">Choose a person, then open “Each day” to mark the arrangement Proposed, Asked, or Confirmed. Only confirmed arrangements can create new calendar events. Changing the person resets confirmation.</p>
+  <p style="margin-top:12px">
+    <a class="btn ghost small" href="/days-off.xlsx">
+      <svg class="icon"><use href="#ic-download"></use></svg> Download spreadsheet
+    </a>
+  </p>
+</div>
+
+<div class="card">
+  <details>
+    <summary class="small"><strong>Days you are already off work</strong>
+      <span class="muted">({{ holidays|length }} set)</span></summary>
+    <p class="small muted" style="margin:8px 0">Your work holidays, one per line: YYYY-MM-DD, then an optional label.</p>
+    <form method="post" action="/days-off/holidays">
+      <textarea name="holidays" rows="8" style="font-family:ui-monospace,Menlo,Consolas,monospace"
+        placeholder="2026-11-26 Thanksgiving&#10;2026-11-27 Day after Thanksgiving">{% for d, label in holidays %}{{ d }} {{ label }}
+{% endfor %}</textarea>
+      <p style="margin-top:10px"><button class="btn small" type="submit">Save holidays</button></p>
+    </form>
+  </details>
+</div>
+
+<div class="card" id="bulk">
+  <div class="formgrid">
+    <label>With the days I tick
+      <select id="bulk-kind">
+        <option value="full">Create day-off events (day off)</option>
+        <option value="early">Create pickup events (half day)</option>
+      </select>
+    </label>
+    <label>&nbsp;
+      <button class="btn" id="bulk-go" type="button">Preview</button>
+    </label>
+    <label>&nbsp;
+      <button class="btn ghost" id="tick-tbd" type="button"
+        title="Ticks every day off that has someone assigned but no calendar event yet — exactly the days Preview can turn into events">Tick days ready for the calendar</button>
+    </label>
+  </div>
+  <div id="bulk-out" style="display:none;margin-top:14px"></div>
+  <div id="bulk-progress" style="display:none;margin-top:12px">
+    <div class="small muted" id="bulk-progress-text">Starting…</div>
+    <div class="track" style="height:4px;background:var(--line);border-radius:2px;margin-top:6px">
+      <div id="bulk-progress-fill" style="height:100%;width:0;background:var(--accent);border-radius:2px;transition:width .2s"></div>
+    </div>
+  </div>
+  <p class="small muted" style="margin-top:10px">Events invite {{ partner }}. Days already on the calendar are skipped.</p>
+</div>
+
+{% if rejects %}
+<div class="card">
+  <details>
+    <summary class="small"><strong>{{ rejects|length }} feed
+      {{ 'entry' if rejects|length == 1 else 'entries' }} ignored</strong>
+      <span class="muted">— not a school closure</span></summary>
+    <p class="small muted" style="margin:8px 0">Kept visible in case one is a real closure.</p>
+    {% for r in rejects %}
+    <div class="small" style="padding:5px 0;border-top:1px dashed var(--line)">
+      <span class="muted">{{ r.day }}</span> — {{ r.title }}
+      <span class="chip s-quiet">{{ r.why }}</span>
+    </div>
+    {% endfor %}
+  </details>
+</div>
+{% endif %}
+
+{% if not rows %}
+<div class="card"><p class="muted">No school-out days ahead.</p></div>
+{% endif %}
+
+{% if months %}
+<div class="monthnav" id="monthnav">
+  <span class="monthnav-lbl">Jump to</span>
+  {% for m in months %}
+  <a class="catchip" href="#m-{{ m.key }}">{{ m.short }}
+    <span class="mn-count">{{ m.days }}</span><span class="mn-tbd" data-key="{{ m.key }}" title="nobody assigned" {{ 'hidden' if not m.tbd }}>{{ m.tbd }}</span></a>
+  {% endfor %}
+  <span class="monthnav-filter">
+    <a class="catchip on" data-show="all" href="#">All</a>
+    <a class="catchip" data-show="full" href="#">Days off</a>
+    <a class="catchip" data-show="early" href="#">Half days</a>
+  </span>
+</div>
+{% endif %}
+
+{% for m in months %}
+<section class="month" id="m-{{ m.key }}" data-full="{{ m.full }}" data-early="{{ m.early }}">
+  <div class="monthhead">
+    <h2>{{ m.label }}</h2>
+    <span class="monthsum small muted">
+      {% if m.full %}<span class="kindtag full">{{ m.full }} day{{ '' if m.full == 1 else 's' }} off</span>{% endif %}
+      {% if m.early %}<span class="kindtag early">{{ m.early }} half day{{ '' if m.early == 1 else 's' }}</span>{% endif %}
+      <span class="chip {{ 's-missing' if m.tbd else 's-ok' }} js-mtbd">{{ (m.tbd ~ ' nobody assigned') if m.tbd else 'all assigned' }}</span>
+    </span>
+  </div>
+  <div class="card monthcard">
+  {% for r in m.runs %}
+    <div class="run {{ r.kind }} {{ 'holiday' if r.company_holiday }}" data-kind="{{ r.kind }}" data-days="{{ r.days_csv }}">
+      <div class="runhead">
+        <label class="pick"><input type="checkbox" class="runcheck" aria-label="Tick {{ r.label }}"></label>
+        <div class="runwhen">
+          <span class="kindtag {{ r.kind }}">{{ 'Day off' if r.kind == FULL else 'Half day' }}</span>
+          <strong class="rundate">{{ r.label }}</strong>
+          {% if r.n > 1 %}<span class="small muted">{{ r.n }} days</span>{% endif %}
+        </div>
+        <div class="runchips">
+          <span class="chip {{ r.who|kid_class }}">{{ r.who }}</span>
+          {% if r.company_holiday %}<span class="chip s-ok">Already off — {{ r.holiday_label }}</span>{% endif %}
+          {% if r.on_calendar == r.n %}<span class="chip s-ok">On calendar</span>
+          {% elif r.on_calendar %}<span class="chip s-quiet">{{ r.on_calendar }} of {{ r.n }} on calendar</span>{% endif %}
+          <span class="chip s-missing js-tbd" {{ 'hidden' if not r.tbd }}>{{ 'Nobody assigned' if r.tbd == r.n else r.tbd ~ ' of ' ~ r.n ~ ' unassigned' }}</span>
+        </div>
+        <div class="runctl">
+          <label>Who has it
+            <select class="r-coverage">
+              {% if r.coverage == 'mixed' %}<option value="" selected disabled>mixed</option>{% endif %}
+              {% for c in coverage_options %}<option value="{{ c }}" {{ 'selected' if c == r.coverage }}>{{ c }}</option>{% endfor %}
+            </select>
+          </label>
+          <label class="sitterpick" {{ '' if r.coverage == 'Babysitter' else 'hidden' }}>Which sitter
+            <select class="r-sitter">
+              <option value="">not decided</option>
+              {% if r.sitter == 'mixed' %}<option value="" selected disabled>mixed</option>{% endif %}
+              {% for s in sitters %}<option value="{{ s.id }}" {{ 'selected' if s.id == r.sitter_id }}>{{ s.name }}</option>{% endfor %}
+              {% if not sitters %}<option value="" disabled>no sitters yet — add them on the Sitters page</option>{% endif %}
+            </select>
+          </label>
+          <label>Arrangement
+            <select class="r-confirmation" aria-label="Coverage arrangement for {{ r.label }}">
+              {% if r.confirmation == 'mixed' %}<option value="" selected disabled>Mixed confirmation</option>{% endif %}
+              {% for value in ['proposed','asked','confirmed'] %}<option value="{{ value }}" {{ 'selected' if r.confirmation == value }}>{{ value | capitalize }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>Time off
+            <select class="r-pto">
+              {% if r.pto == 'mixed' %}<option value="" selected disabled>mixed</option>{% endif %}
+              {% for p in pto_options %}<option value="{{ p }}" {{ 'selected' if p == r.pto }}>{{ p }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>Note
+            <input type="text" class="r-note" value="{{ r.note }}" placeholder="camp? grandma?">
+          </label>
+        </div>
+      </div>
+      <div class="runwhy small muted">
+        {% for kid, titles in r.reasons %}<span class="whykid">{{ kid }}:</span> {{ titles | join(' / ') }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+        {% for p in r.partial %}<span class="chip s-quiet" title="Only the days the feed listed are counted; the other days are almost certainly closed too — check the school calendar">{{ p }}</span>{% endfor %}
+      </div>
+      <div class="runstatus small muted"></div>
+
+      {# The per-day rows: overrides for one day in a run, and the calendar buttons. #}
+      <details class="rundays" {{ 'open' if r.coverage == 'mixed' or r.pto == 'mixed' }}>
+        <summary class="small muted">{{ 'This day' if r.n == 1 else 'Each day' }}{% if r.n > 1 %} ({{ r.n }}){% endif %}</summary>
+        {% for d in r.days %}
+        <div class="dayrow {{ 'holiday' if d.company_holiday }}" data-day="{{ d.day }}"
+             data-kind="{{ d.kind }}" data-coverage="{{ d.coverage }}" data-confirmation="{{ d.confirmation }}"{{ ' data-oncal=1' if d.gcal_event_id }}>
+          <label class="pick"><input type="checkbox" class="daycheck" value="{{ d.day }}" aria-label="Tick {{ d.day }}"></label>
+          <div class="dayname">
+            <strong>{{ d.weekday }} {{ d.day }}</strong>
+            {# "Ava + Leo" collapses to "Both kids" when it's every kid; one kid keeps their own chip color. #}
+            <span class="chip {{ d.who|kid_class }}">{{ kids_label(d.who.split(' + ')) or d.who }}</span>
+            {% if d.company_holiday %}<span class="chip s-ok">Already off — {{ d.holiday_label }}</span>{% endif %}
+            {% if d.gcal_event_id %}<span class="chip s-ok">On calendar{{ ' (pickup)' if d.gcal_kind == 'pickup' }}</span>{% endif %}
+            <span class="chip s-missing js-tbd" {{ 'hidden' if not (d.coverage == 'TBD' and not d.company_holiday and not d.gcal_event_id) }}>Nobody assigned</span>
+          </div>
+          <div class="dayctl">
+            <label>Who has it
+              <select class="f-coverage">
+                {% for c in coverage_options %}<option value="{{ c }}" {{ 'selected' if c == d.coverage }}>{{ c }}</option>{% endfor %}
+              </select>
+            </label>
+            <label class="sitterpick" {{ '' if d.coverage == 'Babysitter' else 'hidden' }}>Which sitter
+              <select class="f-sitter">
+                <option value="">not decided</option>
+                {% for s in sitters %}<option value="{{ s.id }}" {{ 'selected' if s.id == d.sitter_id }}>{{ s.name }}</option>{% endfor %}
+                {% if not sitters %}<option value="" disabled>no sitters yet — add them on the Sitters page</option>{% endif %}
+              </select>
+            </label>
+            <label>Arrangement
+              <select class="f-confirmation" aria-label="Coverage confirmation for {{ d.day }}">
+                {% for value in ['proposed','asked','confirmed'] %}<option value="{{ value }}" {{ 'selected' if d.confirmation == value }}>{{ value | capitalize }}</option>{% endfor %}
+              </select>
+              {% if d.gcal_event_id and d.confirmation != 'confirmed' %}<span class="small muted">Already on calendar; confirm the plan or remove the event below.</span>{% endif %}
+            </label>
+            <label>Time off
+              <select class="f-pto">
+                {% for p in pto_options %}<option value="{{ p }}" {{ 'selected' if p == d.pto }}>{{ p }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Note
+              <input type="text" class="f-note" value="{{ d.note }}" placeholder="camp? grandma?">
+            </label>
+            {% if d.gcal_event_id %}
+            <label>&nbsp;
+              <button class="btn ghost small remove" type="button" data-event="{{ d.gcal_event_id }}">Remove from calendar</button>
+            </label>
+            {% endif %}
+          </div>
+          <div class="rowstatus small muted"></div>
+        </div>
+        {% endfor %}
+      </details>
+    </div>
+  {% endfor %}
+  </div>
+</section>
+{% endfor %}
+
+<style>
+[hidden] { display:none !important; }  /* .chip's display:inline-block outranks the UA [hidden] rule */
+.kindtag { display:inline-block; font-size:10.5px; text-transform:uppercase; letter-spacing:1px; padding:2px 8px; border-radius:3px; white-space:nowrap; font-weight:600; }
+.kindtag.full { background:var(--ink); color:#fff; }
+.kindtag.early { background:transparent; color:var(--ink); border:1px solid var(--ink); }
+.monthnav { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:22px 0 4px; }
+.monthnav-lbl { font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--muted); margin-right:4px; }
+.monthnav .mn-count { font-variant-numeric:tabular-nums; opacity:.75; }
+.monthnav .mn-tbd { background:#b3261e; color:#fff; border-radius:999px; font-size:10px; padding:0 6px; line-height:16px; }
+.monthnav-filter { margin-left:auto; display:inline-flex; gap:6px; }
+.month { scroll-margin-top:12px; }
+.monthhead { position:sticky; top:0; z-index:2; background:var(--bg, #fdfcfa); display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; padding:10px 0 6px; }
+.monthhead h2 { margin:0; }
+.monthsum { display:inline-flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.monthcard { padding:0 20px; }
+.run { padding:12px 0; border-left:4px solid var(--ink); padding-left:12px; margin-left:-16px; }
+.run.early { border-left-color:rgba(29,26,22,.22); }  /* solid — a 4px dashed rule renders as broken blocks on a phone */
+.run + .run { border-top:1px solid var(--line); }
+.run.holiday { background:var(--bg-alt); }
+.run.busy { opacity:.55; }
+.runhead { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; min-width:0; }
+.runwhen { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.rundate { font-size:16px; white-space:nowrap; }
+.runchips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.runctl { display:flex; flex-wrap:wrap; gap:8px 12px; margin-left:auto; align-items:flex-end; }
+.runctl label, .dayctl label { display:flex; flex-direction:column; gap:2px; font-size:10.5px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); min-width:0; }
+.runctl select, .dayctl select { font:inherit; font-size:13px; text-transform:none; letter-spacing:0; padding:4px 6px; border:1px solid var(--line); border-radius:5px; background:#fff; color:var(--ink); max-width:100%; }
+.runctl input, .dayctl input[type=text] { font:inherit; font-size:13px; text-transform:none; letter-spacing:0; padding:4px 6px; border:1px solid var(--line); border-radius:5px; width:150px; max-width:100%; }
+.runwhy { margin-top:6px; }
+.runwhy .whykid { color:var(--ink); }
+.runwhy .chip { margin-left:4px; }
+.pick input { width:18px; height:18px; }
+.rundays { margin-top:6px; }
+.rundays summary { cursor:pointer; }
+.dayrow { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:8px 0 8px 8px; border-top:1px dashed var(--line); min-width:0; }
+.dayrow .dayname { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; min-width:0; }
+.dayrow.holiday { background:var(--bg-alt); }
+.dayrow.busy { opacity:.55; }
+.dayctl { display:flex; flex-wrap:wrap; gap:8px 12px; margin-left:auto; align-items:flex-end; }
+.rowstatus:empty, .runstatus:empty { display:none; }
+.month.hide-full .run.full, .month.hide-early .run.early { display:none; }
+.month.empty { display:none; }
+#bulk-out .blk { padding:6px 0; border-bottom:1px dashed var(--line); }
+#bulk-out .skip { color:var(--muted); }
+@media (max-width:720px) {
+  .pick input { width:22px; height:22px; }
+  .monthcard { padding:0 14px; }
+  .run { margin-left:-10px; padding-left:8px; }
+  .runctl, .dayctl { margin-left:0; width:100%; }
+  .runctl input, .dayctl input[type=text] { width:100%; }
+  .monthnav-filter { margin-left:0; }
+}
+</style>
+
+<script>
+const who = () => localStorage.getItem('fm_who') || '';
+
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const data = await r.json().catch(() => ({error: 'bad response'}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+// Save a field the moment it changes. Two parents read this; a decision that needs a
+// Save button is a decision that sits unsaved in a browser tab nobody reopens.
+function wire(row) {
+  const day = row.dataset.day;
+  const status = row.querySelector('.rowstatus');
+  const save = async (patch) => {
+    status.textContent = 'Saving…';
+    try {
+      const res = await post('/days-off/plan', {day, who: who(), ...patch});
+      row.dataset.coverage = res.coverage || 'TBD';
+      row.querySelector('.f-confirmation').value = res.confirmation || 'proposed';
+      row.dataset.confirmation = res.confirmation || 'proposed';
+      refreshCounts();
+      status.textContent = 'Saved';
+      setTimeout(() => { status.textContent = ''; }, 1500);
+      return true;
+    } catch (e) {
+      row.querySelector('.f-confirmation').value = row.dataset.confirmation;
+      refreshCounts();
+      status.textContent = 'Could not save: ' + e.message; return false;
+    }
+  };
+  row._save = save;
+  const showSitter = (el, cov) => { const l = el.querySelector('.sitterpick'); if (l) l.hidden = cov !== 'Babysitter'; };
+  row.querySelector('.f-coverage').addEventListener('change', e => { showSitter(row, e.target.value); save({coverage: e.target.value}); });
+  const fs = row.querySelector('.f-sitter');
+  if (fs) fs.addEventListener('change', e => save({sitter_id: e.target.value}));
+  row.querySelector('.f-pto').addEventListener('change', e => save({pto: e.target.value}));
+  row.querySelector('.f-confirmation').addEventListener('change', e => save({confirmation: e.target.value}));
+  const note = row.querySelector('.f-note');
+  note.addEventListener('change', () => save({note: note.value}));
+  const rm = row.querySelector('.remove');
+  if (rm) rm.addEventListener('click', async () => {
+    rm.disabled = true; status.textContent = 'Removing…';
+    try { await post('/days-off/remove', {event_id: rm.dataset.event}); location.reload(); }
+    catch (e) { status.textContent = 'Could not remove: ' + e.message; rm.disabled = false; }
+  });
+}
+document.querySelectorAll('.dayrow').forEach(wire);
+
+// A saved change must LOOK saved. The chips are rendered from the database, so after a
+// save this recounts them from the rows' live coverage values — otherwise "Grandparents"
+// saves and the row keeps shouting "Nobody assigned" until someone reloads.
+const isTbd = r => r.dataset.coverage === 'TBD' && !r.classList.contains('holiday');
+function refreshCounts() {
+  let total = 0;
+  document.querySelectorAll('.run').forEach(run => {
+    const days = [...run.querySelectorAll('.dayrow')];
+    const confirmation = run.querySelector('.r-confirmation');
+    const states = new Set(days.map(d => d.dataset.confirmation));
+    if (states.size > 1 && !confirmation.querySelector('option[value=""]')) confirmation.add(new Option('Mixed confirmation',''));
+    confirmation.value = states.size === 1 ? [...states][0] : '';
+    const n = days.filter(isTbd).length;
+    const chip = run.querySelector('.runchips .js-tbd');
+    chip.hidden = n === 0;
+    chip.textContent = n === days.length ? 'Nobody assigned' : n + ' of ' + days.length + ' unassigned';
+    days.forEach(d => {
+      d.querySelector('.js-tbd').hidden = !(isTbd(d) && !d.dataset.oncal);
+    });
+  });
+  document.querySelectorAll('.month').forEach(m => {
+    const n = [...m.querySelectorAll('.dayrow')].filter(isTbd).length;
+    total += n;
+    const chip = m.querySelector('.js-mtbd');
+    chip.className = 'chip ' + (n ? 's-missing' : 's-ok') + ' js-mtbd';
+    chip.textContent = n ? (n + ' nobody assigned') : 'all assigned';
+    const badge = document.querySelector('.mn-tbd[data-key="' + m.id.slice(2) + '"]');
+    if (badge) { badge.hidden = n === 0; badge.textContent = n; }
+  });
+  const stat = document.getElementById('stat-tbd');
+  if (stat) stat.textContent = total;
+}
+
+// A run row is the whole break: setting it sets every day in it (one request per day,
+// with a live count), and its checkbox ticks every day for the calendar bulk action.
+function wireRun(run) {
+  const days = [...run.querySelectorAll('.dayrow')];
+  const status = run.querySelector('.runstatus');
+  const fanOut = async (field, patch, apply) => {
+    run.classList.add('busy');
+    let ok = 0;
+    for (let i = 0; i < days.length; i++) {
+      status.textContent = days.length > 1 ? ('Saving ' + (i + 1) + ' of ' + days.length + '…') : 'Saving…';
+      apply(days[i]);
+      if (await days[i]._save(patch)) ok += 1;
+    }
+    run.classList.remove('busy');
+    status.textContent = ok === days.length ? 'Saved' : ('Saved ' + ok + ' of ' + days.length + ' — see the days below');
+    if (ok === days.length) setTimeout(() => { status.textContent = ''; }, 1500);
+  };
+  run.querySelector('.r-coverage').addEventListener('change', e => {
+    const v = e.target.value; if (!v) return;
+    const rl = run.querySelector('.sitterpick'); if (rl) rl.hidden = v !== 'Babysitter';
+    fanOut('coverage', {coverage: v}, d => {
+      d.querySelector('.f-coverage').value = v;
+      const l = d.querySelector('.sitterpick'); if (l) l.hidden = v !== 'Babysitter';
+    });
+  });
+  const rs = run.querySelector('.r-sitter');
+  if (rs) rs.addEventListener('change', e => {
+    const v = e.target.value;
+    fanOut('sitter_id', {sitter_id: v}, d => { const f = d.querySelector('.f-sitter'); if (f) f.value = v; });
+  });
+  run.querySelector('.r-pto').addEventListener('change', e => {
+    const v = e.target.value; if (!v) return;
+    fanOut('pto', {pto: v}, d => { d.querySelector('.f-pto').value = v; });
+  });
+  run.querySelector('.r-confirmation').addEventListener('change', e => {
+    const v = e.target.value; if (!v) return;
+    fanOut('confirmation', {confirmation:v}, d => { d.querySelector('.f-confirmation').value = v; });
+  });
+  const note = run.querySelector('.r-note');
+  note.addEventListener('change', () => {
+    fanOut('note', {note: note.value}, d => { d.querySelector('.f-note').value = note.value; });
+  });
+  const rc = run.querySelector('.runcheck');
+  const boxes = days.map(d => d.querySelector('.daycheck'));
+  rc.addEventListener('change', () => boxes.forEach(b => { b.checked = rc.checked; }));
+  const sync = () => {
+    const n = boxes.filter(b => b.checked).length;
+    rc.checked = n === boxes.length; rc.indeterminate = n > 0 && n < boxes.length;
+  };
+  boxes.forEach(b => b.addEventListener('change', sync));
+  run._sync = sync;
+}
+document.querySelectorAll('.run').forEach(wireRun);
+
+document.getElementById('tick-tbd').addEventListener('click', () => {
+  document.querySelectorAll('.dayrow').forEach(row => {
+    const want = row.dataset.kind === 'full' && row.dataset.coverage !== 'TBD' && row.dataset.confirmation === 'confirmed'
+                 && !row.classList.contains('holiday') && !row.dataset.oncal;
+    if (want) row.querySelector('.daycheck').checked = true;
+  });
+  document.querySelectorAll('.run').forEach(r => r._sync());
+});
+
+// Days off / half days filter — a month with nothing left to show hides with them.
+document.querySelectorAll('.monthnav-filter .catchip').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('.monthnav-filter .catchip').forEach(x => x.classList.toggle('on', x === a));
+    const show = a.dataset.show;
+    document.querySelectorAll('.month').forEach(m => {
+      m.classList.toggle('hide-full', show === 'early');
+      m.classList.toggle('hide-early', show === 'full');
+      const left = show === 'all' ? 1 : Number(m.dataset[show] || 0);
+      m.classList.toggle('empty', left === 0);
+    });
+  });
+});
+
+const out = document.getElementById('bulk-out');
+const prog = document.getElementById('bulk-progress');
+const progText = document.getElementById('bulk-progress-text');
+const progFill = document.getElementById('bulk-progress-fill');
+const goBtn = document.getElementById('bulk-go');
+let pending = null;
+
+function selectedDays() {
+  return [...document.querySelectorAll('.daycheck:checked')].map(c => c.value);
+}
+
+goBtn.addEventListener('click', async () => {
+  const kind = document.getElementById('bulk-kind').value;
+  if (pending) return runCreate(kind, pending);
+
+  const days = selectedDays();
+  if (!days.length) { out.style.display = 'block'; out.innerHTML =
+    '<p class="small muted">Tick some days first.</p>'; return; }
+
+  goBtn.disabled = true; goBtn.textContent = 'Checking…';
+  try {
+    const res = await post('/days-off/preview', {kind, days});
+    let html = '';
+    if (res.blocks.length) {
+      html += '<p class="small"><strong>' + res.blocks.length + ' event' +
+              (res.blocks.length === 1 ? '' : 's') + '</strong> would be created, inviting ' +
+              res.partner + ':</p>';
+      res.blocks.forEach(b => {
+        const span = b.start === b.end ? b.start : (b.start + ' to ' + b.end +
+                     ' (' + b.days.length + ' days)');
+        html += '<div class="blk small">' + b.summary + ' — <span class="muted">' + span + '</span></div>';
+      });
+    } else {
+      html += '<p class="small">Nothing to create.</p>';
+    }
+    if (res.skipped.length) {
+      html += '<p class="small skip" style="margin-top:10px">Skipped: ' +
+              res.skipped.map(s => s.day + ' (' + s.why + ')').join(', ') + '</p>';
+    }
+    out.innerHTML = html; out.style.display = 'block';
+    if (res.blocks.length) {
+      pending = res.blocks;
+      goBtn.textContent = 'Create ' + res.blocks.length + ' event' +
+                          (res.blocks.length === 1 ? '' : 's');
+    } else {
+      goBtn.textContent = 'Preview';
+    }
+  } catch (e) {
+    out.style.display = 'block';
+    out.innerHTML = '<p class="small">Could not check: ' + e.message + '</p>';
+    goBtn.textContent = 'Preview';
+  }
+  goBtn.disabled = false;
+});
+
+// One request per block so the count is real. A single call with a spinner cannot tell
+// you it is on 9 of 12, and 12 round trips to Google is well over a second.
+async function runCreate(kind, blocks) {
+  goBtn.disabled = true;
+  prog.style.display = 'block';
+  let done = 0;
+  const failures = [];
+  for (const b of blocks) {
+    progText.textContent = 'Creating ' + (done + 1) + ' of ' + blocks.length + ' — ' + b.summary;
+    try { await post('/days-off/create-one', {kind, days: b.days}); }
+    catch (e) { failures.push(b.summary + ': ' + e.message); }
+    done += 1;
+    progFill.style.width = Math.round(done / blocks.length * 100) + '%';
+  }
+  if (failures.length) {
+    progText.textContent = 'Finished with ' + failures.length + ' problem(s).';
+    out.innerHTML = '<p class="small">' + failures.join('<br>') + '</p>';
+    goBtn.disabled = false; goBtn.textContent = 'Preview'; pending = null;
+  } else {
+    progText.textContent = 'Done — reloading.';
+    location.reload();
+  }
+}
+</script>
+{% endblock %}

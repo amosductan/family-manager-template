@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{# "with context" is required: without it a macro cannot see TYPE_LABELS/CAT_LABELS from
+   the context processor, and the page 500s on the first row it renders. #}
+{% from "_macros.html" import event_row, category_filter with context %}
+{% block title %}All events — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">Everything on record</div>
+<h1>All events</h1>
+<p style="margin-bottom:16px">
+  <a class="btn {{ 'ghost' if show == 'past' }}" href="/events">Upcoming</a>
+  <a class="btn {{ 'ghost' if show != 'past' }}" href="/events?show=past">Past</a>
+</p>
+<div class="card">
+  {{ category_filter(chips) }}
+  {% for g in groups %}
+  <div class="daygroup">
+    <div class="daydate {{ 'today' if g.is_today }}">{{ g.display }}</div>
+    {% for e in g.events %}{{ event_row(e, show_source=True) }}{% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">{% if chips[0].on %}Nothing here.
+    {% else %}Nothing in the categories you picked. <a href="{{ chips[0].href }}">Show all</a>.{% endif %}</p>
+  {% endfor %}
+</div>
+{% endblock %}

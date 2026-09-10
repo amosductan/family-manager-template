@@ -1,0 +1,63 @@
+{# The whole calendar is ingested, so a category filter is what keeps "comprehensive"
+   from meaning "a wall". Each chip is a plain link that toggles itself — no JS, so it
+   survives a bookmark, a back button and a page reload. Hrefs are built in app.py. #}
+{% macro category_filter(chips) %}
+<div class="catfilter">
+  {% for c in chips %}
+  <a class="catchip{{ ' on' if c.on }}{{ ' empty' if c.n == 0 and c.key }}" href="{{ c.href }}">
+    {{ c.label }}{% if c.key %}<span class="n">{{ c.n }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{# One event row, used by This Week / per-kid / All events. Three copies of this markup
+   drifted apart once already — when the calendar added times, only one page showed them. #}
+{% macro event_row(e, show_kid=True, show_cat=True, show_source=False) %}
+<div class="ev{{ ' cancelled' if e.status == 'cancelled' }}">
+  <span class="when">{{ e.start_time | clock }}</span>
+  {% if show_kid %}<span class="chip {{ (e.kid)|kid_class }}">{{ e.kid }}</span>{% endif %}
+  <span class="chip t-{{ e.type }}">{{ TYPE_LABELS.get(e.type, e.type) }}</span>
+  {% if show_cat and e.category %}
+  <span class="chip c-{{ e.category }}">{{ CAT_LABELS.get(e.category, e.category) }}</span>
+  {% endif %}
+  <details>
+    <summary>{{ e.title }}{% if e.conflict %}
+      <span class="chip warn" title="Two calendars disagree on the time">time disputed</span>
+      {% endif %}</summary>
+    <div class="details-body">
+      {% if e.start_time %}<div>{{ e.start_time | clock }}{% if e.end_time %} – {{ e.end_time | clock }}{% endif %}</div>{% endif %}
+      {% if e.details %}<div style="white-space:pre-wrap">{{ e.details }}</div>{% endif %}
+      {% set c = e.conflict | fromjson %}
+      {% if c %}
+      {# Printed and lost was the old behaviour. A disagreement neither parent can see is
+         a disagreement that gets discovered by showing up at the wrong time. #}
+      <div class="conflictbox">
+        <strong>Two calendars disagree.</strong>
+        Showing <b>{{ c.kept_time }}</b> from “{{ c.kept_cal }}”;
+        “{{ c.dropped_cal }}” says <b>{{ c.dropped_time }}</b>. Nothing here guesses which is right.
+        {# The button is the point: settling this used to mean editing gcal.py. One click
+           rules on the whole recurring series and the nightly ingest stops re-asking. #}
+        <div class="resolve">
+          <span class="small muted">Which is right?</span>
+          {% for cal, t in [(c.kept_cal, c.kept_time), (c.dropped_cal, c.dropped_time)] %}
+          <form method="post" action="/events/{{ e.id }}/resolve-time">
+            <input type="hidden" name="calendar" value="{{ cal }}">
+            <input type="hidden" name="who" class="who-field" value="">
+            <button class="btn ghost small" title="Applies to every {{ e.title }}">{{ t }}</button>
+          </form>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if show_source %}<span class="small muted">source: {{ e.source }}</span>{% endif %}
+      {% if e.status == 'cancelled' %}
+      <div class="small" style="color:var(--err)">No longer on the calendar upstream.</div>
+      {% endif %}
+    </div>
+  </details>
+  <form method="post" action="/events/{{ e.id }}/dismiss">
+    <button class="btn ghost small" title="Dismiss"><svg class="icon"><use href="#ic-x"/></svg></button>
+  </form>
+</div>
+{% endmacro %}

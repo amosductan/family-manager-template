@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Scan — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">Every feed, on demand — the same ones the nightly job runs</div>
+<h1>Scan everything</h1>
+
+<div class="card" id="scan-card" data-running="{{ '1' if status.running else '' }}">
+  <div class="scan-top">
+    <div>
+      <div id="scan-headline" class="scan-headline">
+        {% if status.running %}Scanning…{% elif status.finished %}Last scan {{ status.finished|replace('T', ' ') }}{% else %}Nothing scanned yet this way — the nightly job still runs on its schedule.{% endif %}
+      </div>
+      <div id="scan-summary" class="small muted">{{ status.summary or '' }}</div>
+    </div>
+    <div class="scan-btns">
+      <button class="btn" id="scan-all" {{ 'disabled' if status.running }}>Scan everything</button>
+      <details class="scan-pick">
+        <summary class="btn ghost">Just one feed</summary>
+        <div class="scan-picklist">
+          {% for name, label in steps %}<button class="btn ghost small scan-one" data-step="{{ name }}" {{ 'disabled' if status.running }}>{{ label }}</button>{% endfor %}
+        </div>
+      </details>
+    </div>
+  </div>
+  <div id="scan-refused" class="small" style="color:var(--err); margin-top:8px" hidden></div>
+
+  <div class="steps" id="steps">
+    {% for name, label in steps %}
+    {% set st = status.steps.get(name, {}) %}
+    <div class="step" data-step="{{ name }}" data-state="{{ st.state or 'idle' }}">
+      <div class="step-dot"></div>
+      <div class="step-main">
+        <div class="step-name">{{ label }}</div>
+        <div class="step-detail small muted">{{ st.detail or '' }}</div>
+      </div>
+      <div class="step-state small">{{ {'ok': 'Done', 'failed': 'Failed', 'running': 'Running', 'pending': 'Waiting', 'skipped': 'Skipped'}.get(st.state, '') }}</div>
+      <details class="step-log" {{ '' if st.tail else 'hidden' }}>
+        <summary class="small muted">Show what it printed</summary>
+        <pre class="small">{{ (st.tail or []) | join('\n') }}</pre>
+      </details>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div id="whatsnew">
+{% if status.new and not status.running %}
+{% set n = status.new %}
+<h2>What came in</h2>
+{% if n.error %}<div class="card"><p class="small" style="color:var(--err)">{{ n.error }}</p></div>{% endif %}
+<div class="grid2">
+  <div class="card">
+    <h3>Mail <span class="muted small">{{ n.mail|length }} new</span></h3>
+    {% for m in n.mail %}
+    <div class="srcrow"><div class="name"><a href="/mail/{{ m.id }}">{{ m.subject or '(no subject)' }}</a><div class="sub">{{ m.sender }}{% if m.kid %} · {{ m.kid }}{% endif %}</div></div></div>
+    {% else %}<p class="small muted">Nothing new in the mailbox.</p>{% endfor %}
+    {% if n.open_actions_added %}<p class="small" style="margin-top:8px">{{ n.open_actions_added }} new thing{{ 's' if n.open_actions_added != 1 }} to do — see <a href="/mail">Needs you</a>.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h3>Calendar and dates <span class="muted small">{{ n.events|length }} new</span></h3>
+    {% for e in n.events %}
+    <div class="srcrow"><div class="name">{{ e.title }}<div class="sub">{{ e.event_date }}{% if e.kid %} · {{ e.kid }}{% endif %} · {{ e.source }}</div></div></div>
+    {% else %}<p class="small muted">No new dates on the board.</p>{% endfor %}
+  </div>
+</div>
+{% endif %}
+</div>
+
+<style>
+.scan-top { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+.scan-headline { font-family:var(--serif); font-size:20px; }
+.scan-btns { display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
+.scan-pick summary { list-style:none; display:inline-block; }
+.scan-pick summary::-webkit-details-marker { display:none; }
+.scan-picklist { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; max-width:360px; }
+.steps { margin-top:16px; }
+.step { display:grid; grid-template-columns: 14px minmax(0,1fr) auto; gap:4px 12px; align-items:center; padding:9px 0; border-top:1px dashed var(--line); }
+.step-dot { width:10px; height:10px; border-radius:50%; background:var(--line); }
+.step[data-state=running] .step-dot { background:var(--accent); animation: pulse 1s ease-in-out infinite alternate; }
+.step[data-state=ok] .step-dot { background:var(--ok); }
+.step[data-state=failed] .step-dot { background:var(--err); }
+.step[data-state=skipped] .step-dot { background:transparent; border:1px solid var(--line); }
+.step-state { text-transform:uppercase; letter-spacing:1.2px; font-size:10.5px; color:var(--muted); }
+.step[data-state=failed] .step-state { color:var(--err); }
+.step[data-state=ok] .step-state { color:var(--ok); }
+.step-log { grid-column: 2 / -1; }
+.step-log pre { white-space:pre-wrap; word-break:break-word; background:var(--bg-alt); padding:8px 10px; border-radius:4px; margin-top:6px; max-height:260px; overflow:auto; }
+.grid2 { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; }
+.grid2 h3 { font-family:var(--serif); font-weight:400; font-size:17px; margin:0 0 6px; }
+@keyframes pulse { from { opacity:.4 } to { opacity:1 } }
+</style>
+
+<script>
+const LABEL = {ok: 'Done', failed: 'Failed', running: 'Running', pending: 'Waiting', skipped: 'Skipped', idle: ''};
+function setBusy(b) {
+  document.getElementById('scan-all').disabled = b;
+  document.querySelectorAll('.scan-one').forEach(x => { x.disabled = b; });
+}
+async function start(only) {
+  const refused = document.getElementById('scan-refused');
+  refused.hidden = true;
+  setBusy(true);
+  const r = await fetch('/scan/run', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                       body: JSON.stringify({only: only || null})});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    refused.textContent = data.error || ('Could not start (HTTP ' + r.status + ')');
+    refused.hidden = false;
+    setBusy(false);
+    return;
+  }
+  document.getElementById('scan-headline').textContent = 'Scanning…';
+  document.getElementById('scan-summary').textContent = '';
+  document.getElementById('whatsnew').innerHTML = '';
+  poll();
+}
+function render(s) {
+  const steps = s.steps || {};
+  document.querySelectorAll('.step').forEach(el => {
+    const st = steps[el.dataset.step] || {};
+    el.dataset.state = st.state || 'idle';
+    el.querySelector('.step-detail').textContent = st.detail || '';
+    el.querySelector('.step-state').textContent = LABEL[st.state] || '';
+    const log = el.querySelector('.step-log');
+    if (st.tail && st.tail.length) { log.hidden = false; log.querySelector('pre').textContent = st.tail.join('\n'); }
+  });
+  document.getElementById('scan-summary').textContent = s.summary || '';
+}
+function poll() {
+  fetch('/scan/status.json').then(r => r.json()).then(s => {
+    render(s);
+    if (s.running) { setTimeout(poll, 2000); }
+    else {
+      // Finished: the "what came in" block is server-rendered from the same status, so
+      // reload once rather than re-implementing it here.
+      location.reload();
+    }
+  }).catch(() => setTimeout(poll, 4000));
+}
+document.getElementById('scan-all').addEventListener('click', () => start(null));
+document.querySelectorAll('.scan-one').forEach(b => b.addEventListener('click', () => start([b.dataset.step])));
+if (document.getElementById('scan-card').dataset.running) { setBusy(true); poll(); }
+</script>
+{% endblock %}

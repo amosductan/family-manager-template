@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Gatherings — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">Parties, visits and get-togethers, planned in one place</div>
+<h1>Gatherings</h1>
+
+{% if request.args.get('error') %}<div class="card"><p class="small" style="color:var(--err)">{{ request.args.get('error') }}</p></div>{% endif %}
+
+{% for n in nudges %}
+{# A kid's birthday inside the planning window with nothing started: the one thing this
+   page must never let slip quietly. One press opens the plan with the questions asked. #}
+<div class="card" style="border-left:3px solid var(--warn)">
+  <form method="post" action="/gatherings/new" class="nudge">
+    <input type="hidden" name="kind" value="kid_birthday">
+    <input type="hidden" name="honoree" value="{{ n.kid }}">
+    <input type="hidden" name="year" value="{{ n.date[:4] }}">
+    <input type="hidden" name="who" class="who-field">
+    <div class="nudge-text"><b>{{ n.kid }}'s birthday is {{ n.date | nice_date }}</b>, {{ n.days }} day{{ 's' if n.days != 1 }} away — no party is being planned yet.</div>
+    <button class="btn small" type="submit">Start planning it</button>
+  </form>
+</div>
+{% endfor %}
+
+<h2>Coming up</h2>
+{% if upcoming %}
+<div class="tripgrid">
+  {% for g in upcoming %}
+  <a class="card tripcard" href="/gathering/{{ g.slug }}">
+    <div class="tc-when">
+      {%- if g.date_set %}{{ g.event_date | nice_date }}{% if g.start_time %} · {{ g.start_time | clock }}{% endif %}
+      {%- else %}Date not picked · {{ 'birthday' if g.kind == 'kid_birthday' else 'around' }} {{ g.occasion_date | nice_date }}{% endif %}
+      {%- if g.days_until is not none %} · {% if g.days_until == 0 %}today{% elif g.days_until < 0 %}happening now{% else %}in {{ g.days_until }} day{{ 's' if g.days_until != 1 }}{% endif %}{% endif %}
+    </div>
+    <div class="tc-name">{{ g.name }}</div>
+    <div class="tc-sub">{{ g.kind_label }}{% if g.venue %} · {{ g.venue }}{% endif %}</div>
+    <div class="gbar"><div class="gfill" style="width:{{ g.pct }}%"></div></div>
+    <div class="tc-facts small muted">
+      {{ g.n_done }} of {{ g.n_items }} done{% if g.n_open %} · <span style="color:var(--warn)">{{ g.n_open }} open</span>{% endif %}
+      {%- if g.n_invited %} · {{ g.n_invited }} invited, {{ g.n_yes }} yes{% if g.n_no_reply %}, {{ g.n_no_reply }} no reply{% endif %}
+      {%- elif g.n_guests %} · {{ g.n_guests }} on the list, not invited yet{% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="small muted">Nothing being planned. Start one below — the plan opens with the questions already asked.</p></div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Start a gathering</h2>
+  <form method="post" action="/gatherings/new" id="newg">
+    <input type="hidden" name="who" class="who-field">
+    <div class="kindpick">
+      {% for k, label in kinds.items() %}
+      <label class="kindopt"><input type="radio" name="kind" value="{{ k }}" {{ 'checked' if loop.first }}> {{ label }}</label>
+      {% endfor %}
+    </div>
+    <div class="formgrid" style="margin-top:12px">
+      <label data-kind="kid_birthday">Whose birthday
+        <select name="honoree">{% for k in kids %}<option value="{{ k }}">{{ k }} ({{ (this_year ~ '-' ~ birthdays[k]) | nice_date_noyear }})</option>{% endfor %}</select>
+      </label>
+      <label data-kind="kid_birthday">Year<input name="year" type="number" value="{{ this_year }}" min="{{ this_year }}" max="{{ this_year + 5 }}"></label>
+      <label data-kind="family_visit party">Name<input name="name" placeholder="New Year's at ours / Grandma's visit"></label>
+      <label data-kind="family_visit party">First day<input name="event_date" type="date"></label>
+      <label data-kind="family_visit">Last day<input name="end_date" type="date"></label>
+      <label data-kind="kid_birthday">Party date (optional)<input name="event_date" type="date" disabled></label>
+      <label>Where<input name="venue" placeholder="home / not decided"></label>
+      <label>Budget<input name="budget" inputmode="decimal" placeholder="$"></label>
+    </div>
+    <div style="margin-top:10px"><label>Notes<input name="notes" placeholder="what's already decided, what's open"></label></div>
+    <div style="margin-top:12px"><button class="btn" type="submit">Open the plan</button>
+      <span class="small muted" style="margin-left:10px">The plan starts with every question a party of this kind needs answered. Cross off what doesn't apply.</span></div>
+  </form>
+</div>
+
+<h2>Past</h2>
+{% if past %}
+<div class="card">
+  {% for g in past %}
+  <div class="srcrow">
+    <div class="name"><a href="/gathering/{{ g.slug }}">{{ g.name }}</a>
+      <div class="sub">{{ (g.event_date or g.occasion_date) | nice_date }} · {{ g.kind_label }}{% if g.venue %} · {{ g.venue }}{% endif %}{% if g.status == 'cancelled' %} · canceled{% endif %}</div></div>
+    {% if g.went_well or g.do_differently %}<span class="chip s-ok">How it went</span>{% else %}<span class="chip s-unknown">No notes yet</span>{% endif %}
+    {% if g.actual_cost %}<span class="small muted">${{ '%.0f' % g.actual_cost }}</span>{% endif %}
+    <a class="btn ghost small" href="/gathering/{{ g.slug }}.xlsx"><svg class="icon"><use href="#ic-download"/></svg> Spreadsheet</a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="small muted">Nothing has happened yet.</p></div>
+{% endif %}
+
+<p class="small" style="margin-top:14px"><a class="btn ghost small" href="/gatherings.xlsx"><svg class="icon"><use href="#ic-download"/></svg> Download all</a></p>
+
+<style>
+.tripgrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-bottom:18px; }
+.tripcard { display:block; text-decoration:none; color:inherit; }
+.tripcard:hover { border-color: var(--accent); }
+.tc-when { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--accent); margin-bottom:4px; }
+.tc-name { font-family:var(--serif); font-size:24px; font-weight:300; }
+.tc-sub { color:var(--muted); font-size:13.5px; margin-top:2px; }
+.tc-facts { margin-top:6px; }
+.gbar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; margin-top:10px; }
+.gfill { height:100%; background:var(--accent); border-radius:2px; }
+.nudge { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.nudge-text { flex:1 1 240px; min-width:0; }
+.kindpick { display:flex; gap:8px; flex-wrap:wrap; }
+.kindopt { display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border:1px solid var(--line); border-radius:999px; font-size:13px; cursor:pointer; white-space:nowrap; }
+.kindopt:has(input:checked) { border-color:var(--accent); background:var(--accent-soft); }
+/* The site-wide `input { width:100% }` turned the radio into a full-width pill with the text
+   outside it (seen on the phone 9/6). The radio is a dot, not a field. */
+.kindopt input { width:auto; flex:0 0 auto; margin:0; padding:0; }
+@media (max-width: 720px) { .kindopt { flex:1 1 100%; white-space:normal; } }
+</style>
+<script>
+// The form asks only what the kind needs: a birthday knows its date, a visit has a last day.
+(function () {
+  const form = document.getElementById('newg');
+  const apply = () => {
+    const kind = form.querySelector('input[name=kind]:checked').value;
+    form.querySelectorAll('[data-kind]').forEach(l => {
+      const on = l.dataset.kind.split(' ').includes(kind);
+      l.hidden = !on;
+      // Two fields share the event_date name; only the visible one may submit.
+      l.querySelectorAll('input,select').forEach(i => { i.disabled = !on; });
+    });
+  };
+  form.querySelectorAll('input[name=kind]').forEach(r => r.addEventListener('change', apply));
+  apply();
+})();
+</script>
+{% endblock %}

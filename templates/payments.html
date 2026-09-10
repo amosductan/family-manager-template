@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Payments — Family Manager{% endblock %}
+{% block content %}
+<div class="eyebrow">What the family pays for, and when</div>
+<h1>Payments &amp; activities</h1>
+<p style="margin-bottom:16px"><a class="btn ghost" href="/payment-plans">Plan transitions &amp; compare charges</a></p>
+<p class="small muted" style="margin-bottom:12px">Tuition, camps, aftercare and activities: what, who with, and when it's due. Or tell <a href="/ask">Ask</a>: "add swim lessons at the rec center, $45 a week on Mondays".</p>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:8px">
+    <h2 style="margin:0">Registry</h2>
+    <a class="btn ghost small" href="/payments.xlsx" style="text-decoration:none">
+      <svg class="icon"><use href="#ic-download"></use></svg> Spreadsheet
+    </a>
+  </div>
+  <div class="tablewrap">
+  <table class="paytable">
+    <thead>
+      <tr><th>Name</th><th>Kid</th><th>Activity</th><th>Organization</th><th>Amount</th><th>When due</th><th>Autopay</th><th>Notes</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for p in payments %}
+    <tr {% if not p.active %}style="opacity:.45"{% endif %}>
+      <td class="pay-name"><strong>{{ p.name }}</strong> <span class="small muted">· {{ p.category }}</span></td>
+      <td data-label="Kid"><span class="chip {{ (p.kid)|kid_class }}">{{ p.kid }}</span></td>
+      <td data-label="Activity" class="{{ 'is-empty' if not p.activity }}">{{ p.activity or '' }}</td>
+      <td data-label="Organization" class="{{ 'is-empty' if not p.organization }}">{{ p.organization or '' }}</td>
+      <td data-label="Amount">{% if p.amount is not none %}${{ '%.2f'|format(p.amount) }}{% else %}<span class="chip s-unknown">TBD</span>{% endif %}</td>
+      <td data-label="When due">{{ when_due(p) }}</td>
+      <td data-label="Autopay">{{ 'yes' if p.autopay else 'no' }}</td>
+      <td class="small muted pay-notes {{ 'is-empty' if not p.notes }}" data-label="Notes">{{ p.notes or '' }}</td>
+      <td class="pay-edit"><button class="btn ghost small" onclick='fillForm({{ {
+        "id": p.id, "name": p.name, "activity": p.activity, "organization": p.organization,
+        "kid": p.kid, "category": p.category, "amount": p.amount, "cadence": p.cadence,
+        "due_rule": p.due_rule, "next_due": p.next_due, "autopay": p.autopay, "notes": p.notes,
+        "active": p.active } | tojson }})'>Edit</button></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<style>
+/* Nine columns cannot fit a phone, and a sideways-scrolling table is how a row gets
+   read wrong — you see an amount with the wrong name off-screen. So on a phone each
+   payment becomes its own labeled block instead. */
+@media (max-width: 720px) {
+  .paytable, .paytable tbody, .paytable tr, .paytable td { display: block; width: 100%; }
+  .paytable thead { display: none; }
+  .paytable tr { border: 1px solid var(--line); border-radius: 6px;
+                 padding: 10px 12px; margin-bottom: 10px; }
+  .paytable td { border: 0; padding: 3px 0; display: flex; gap: 12px;
+                 justify-content: space-between; align-items: baseline; text-align: right; }
+  .paytable td::before { content: attr(data-label); flex: none; text-align: left;
+                         font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px;
+                         color: var(--muted); }
+  .paytable td.is-empty { display: none; }   /* an empty cell owes nobody a label */
+  .paytable td.pay-notes { display: block; text-align: left; margin-top: 6px; }
+  .paytable td.pay-notes::before { display: block; margin-bottom: 2px; }
+  .paytable td.pay-name { display: block; text-align: left; font-size: 15px;
+                          padding-bottom: 6px; margin-bottom: 4px;
+                          border-bottom: 1px dashed var(--line); }
+  .paytable td.pay-edit { display: block; text-align: left; margin-top: 8px; }
+}
+.due-hint { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+</style>
+
+<div class="card">
+  <h2 style="margin-top:0" id="form-title">Add a payment or activity</h2>
+  <form method="post" id="pay-form">
+    <input type="hidden" name="id" id="f-id">
+    <div class="formgrid">
+      <label>Name<input name="name" id="f-name" required placeholder="Swim lessons"></label>
+      <label>Activity<input name="activity" id="f-activity" placeholder="Swimming"></label>
+      <label>Organization<input name="organization" id="f-organization" placeholder="Riverside Rec Center"></label>
+      <label>Kid<select name="kid" id="f-kid">{% for k in kids %}<option>{{ k }}</option>{% endfor %}</select></label>
+      <label>Category<select name="category" id="f-category">
+        {% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></label>
+      <label>Amount ($)<input name="amount" id="f-amount" type="number" step="0.01" min="0"></label>
+    </div>
+    <div class="formgrid" style="margin-top:10px">
+      <label>Cadence<select name="cadence" id="f-cadence" onchange="dueHint()">
+        {% for key, label, hint in cadences %}<option value="{{ key }}" data-hint="{{ hint }}" {{ 'selected' if key == 'monthly' }}>{{ label }}</option>{% endfor %}</select></label>
+      <label>When it's due<input name="due_rule" id="f-due_rule" placeholder="e.g. the 1st">
+        <div class="due-hint" id="due-hint">The rule for a recurring charge: a weekday, a day of the month, "each session".</div></label>
+      <label>Next specific date <span class="small muted">(optional)</span><input name="next_due" id="f-next_due" type="date"></label>
+      <label class="small">Autopay <input type="checkbox" name="autopay" id="f-autopay" style="width:auto"></label>
+      <label class="small">Active <input type="checkbox" name="active" id="f-active" checked style="width:auto"></label>
+    </div>
+    <div style="margin-top:10px">
+      <label>Notes<input name="notes" id="f-notes"></label>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn" type="submit">Save</button>
+      <button class="btn ghost" type="button" onclick="resetForm()">Clear</button>
+    </div>
+  </form>
+</div>
+
+<script>
+function dueHint() {
+  const sel = document.getElementById('f-cadence');
+  const opt = sel.options[sel.selectedIndex];
+  const rule = document.getElementById('f-due_rule');
+  rule.placeholder = opt.dataset.hint || '';
+  const oneTime = sel.value === 'one-time';
+  rule.disabled = oneTime;
+  document.getElementById('due-hint').textContent = oneTime
+    ? 'One-time: put the date in the next box.'
+    : 'The rule for a recurring charge: a weekday, a day of the month, "each session".';
+}
+function fillForm(p) {
+  document.getElementById('form-title').textContent = 'Edit: ' + p.name;
+  for (const k of ['id','name','activity','organization','kid','category','amount','cadence','due_rule','next_due','notes']) {
+    const el = document.getElementById('f-' + k);
+    if (el) el.value = p[k] == null ? '' : p[k];
+  }
+  document.getElementById('f-autopay').checked = !!p.autopay;
+  document.getElementById('f-active').checked = !!p.active;
+  dueHint();
+  window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+}
+function resetForm() {
+  document.getElementById('form-title').textContent = 'Add a payment or activity';
+  document.getElementById('pay-form').reset();
+  document.getElementById('f-id').value = '';
+  dueHint();
+}
+dueHint();
+</script>
+{% endblock %}

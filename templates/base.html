@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Family Manager{% endblock %}</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C4974C' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9.5 12 3l9 6.5V21H3z'/%3E%3Cpath d='M9 21v-6h6v6'/%3E%3C/svg%3E">
+<style>
+:root {
+  --ink: #1d1a16;
+  --accent: #C4974C;
+  --accent-soft: rgba(196, 151, 76, 0.10);
+  --ok: #3e7d4f; --ok-soft: rgba(62,125,79,.12);
+  --warn: #a56a00; --warn-soft: rgba(165,106,0,.12);
+  --err: #b3402e; --err-soft: rgba(179,64,46,.12);
+  --quiet: #5c6b73; --quiet-soft: rgba(92,107,115,.12);
+  --line: rgba(29,26,22,.12);
+  --muted: rgba(29,26,22,.55);
+  --bg-alt: #f7f5f1;
+  --serif: "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; }
+body { font-family: var(--sans); font-size: 15px; color: var(--ink);
+       background: #fdfcfa; line-height: 1.5;
+       /* A long unbroken string (a URL in a calendar note) must break rather than
+          widen the page — sideways scrolling is the thing this app must never do. */
+       overflow-wrap: break-word; }
+a { color: inherit; }
+img { max-width: 100%; }
+header.site { border-bottom: 1px solid var(--line); background: #fff; }
+.shell { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+header.site .shell { display: flex; align-items: baseline; gap: 28px; padding-top: 18px; padding-bottom: 14px; flex-wrap: wrap; }
+.brand { font-family: var(--serif); font-size: 22px; font-weight: 300; letter-spacing: .5px; text-decoration: none; }
+.brand span { color: var(--accent); }
+nav.main { display: flex; flex-wrap: wrap; gap: 6px 0; font-size: 13.5px; min-width: 0; }
+nav.main a { text-decoration: none; color: var(--muted); text-transform: uppercase; letter-spacing: 1.2px; font-size: 11.5px; padding-bottom: 2px; white-space: nowrap; }
+nav.main a.active, nav.main a:hover { color: var(--ink); border-bottom: 2px solid var(--accent); }
+.navgroup { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; padding: 0 14px; border-left: 1px solid var(--line); }
+.navgroup:first-child { padding-left: 0; border-left: 0; }
+.navgroup-name { display: none; }
+/* The menu is only a menu on a phone; on a laptop it is the row it always was. */
+.navmenu { flex: 1 1 auto; min-width: 0; }
+.navmenu > summary { display: none; }
+.navmenu > summary::-webkit-details-marker { display: none; }
+main { padding: 28px 0 60px; }
+.eyebrow { text-transform: uppercase; letter-spacing: 2px; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+h1 { font-family: var(--serif); font-weight: 300; font-size: 34px; margin-bottom: 18px; }
+h2 { font-family: var(--serif); font-weight: 400; font-size: 21px; margin: 26px 0 12px; }
+/* min-width:0 is load-bearing, not tidying: a grid/flex child defaults to min-width:auto,
+   so one un-shrinkable row (a nowrap chip line) sizes the whole COLUMN to its content and
+   pushes the page wider than the phone. Every wrapper between the shell and a row needs it. */
+.grid { display: grid; gap: 20px; }
+.grid > * { min-width: 0; }
+@media (min-width: 900px) { .grid.cols-2 { grid-template-columns: 1.6fr 1fr; } }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; min-width: 0; }
+.card + .card { margin-top: 16px; }
+.daygroup { margin-bottom: 18px; }
+.daydate { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.daydate.today { color: var(--accent); font-weight: 600; }
+.ev { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; min-width: 0; }
+.ev + .ev { border-top: 1px dashed var(--line); }
+.ev .title { flex: 1; min-width: 0; }
+.ev details { flex: 1; min-width: 0; }
+.ev summary { cursor: pointer; list-style: none; }
+.ev summary::-webkit-details-marker { display: none; }
+.ev .details-body { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.chip { display: inline-block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+/* Kid chips by position (family.kid_class): kid-0, kid-1 ... and kid-both for shared.
+   Past four kids the colors cycle; the name on the chip is what tells them apart. */
+.chip.kid-0, .chip.kid-4 { background: var(--accent-soft); color: var(--accent); }
+.chip.kid-1, .chip.kid-5 { background: var(--quiet-soft); color: var(--quiet); }
+.chip.kid-2, .chip.kid-6 { background: var(--warn-soft); color: var(--warn); }
+.chip.kid-3, .chip.kid-7 { background: rgba(120,82,160,.12); color: #6f4f96; }
+.chip.kid-both { background: var(--ok-soft); color: var(--ok); }
+.example-banner { background: var(--warn-soft); color: var(--ink); font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-bottom: 14px; }
+.chip.t-closure, .chip.t-early_dismissal { background: var(--err-soft); color: var(--err); }
+.chip.t-deadline { background: var(--warn-soft); color: var(--warn); }
+.chip.t-meeting, .chip.t-event, .chip.t-camp { background: var(--accent-soft); color: var(--accent); }
+.chip.t-info { background: var(--quiet-soft); color: var(--quiet); }
+.chip.c-kids_school { background: var(--accent-soft); color: var(--accent); }
+.chip.c-money { background: var(--warn-soft); color: var(--warn); }
+.chip.c-work { background: var(--quiet-soft); color: var(--quiet); }
+.chip.c-travel_home { background: var(--ok-soft); color: var(--ok); }
+.chip.c-errand { background: rgba(29,26,22,.06); color: var(--muted); }
+.chip.c-other { background: rgba(29,26,22,.06); color: var(--muted); }
+.chip.warn { background: var(--err-soft); color: var(--err); margin-left: 6px; }
+/* A fixed-width slot so titles line up whether or not an entry has a clock time. */
+.ev .when { min-width: 52px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ev.cancelled { opacity: .55; }
+.ev.cancelled summary { text-decoration: line-through; }
+.conflictbox { margin-top: 6px; padding: 8px 10px; border-left: 2px solid var(--err); background: var(--err-soft); border-radius: 0 4px 4px 0; font-size: 12.5px; color: var(--ink); }
+.conflictbox .resolve { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.conflictbox .resolve form { margin: 0; }
+.catfilter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.catchip { display: inline-flex; align-items: center; gap: 5px; text-decoration: none; font-size: 11.5px; letter-spacing: .4px; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: #fff; }
+.catchip:hover { border-color: var(--accent); color: var(--ink); }
+.catchip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.catchip.empty { opacity: .45; }
+.catchip .n { font-size: 10.5px; opacity: .7; font-variant-numeric: tabular-nums; }
+.chip.s-ok { background: var(--ok-soft); color: var(--ok); }
+.chip.s-quiet { background: var(--quiet-soft); color: var(--quiet); }
+.chip.s-missing { background: var(--err-soft); color: var(--err); }
+.chip.s-unknown { background: var(--warn-soft); color: var(--warn); }
+.srcrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; font-size: 13.5px; }
+.srcrow + .srcrow { border-top: 1px dashed var(--line); }
+.srcrow .name { flex: 1; min-width: 0; }
+.srcrow .sub { font-size: 12px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 8px; border-bottom: 1px dashed var(--line); vertical-align: top; }
+.num { font-family: var(--serif); font-size: 30px; color: var(--accent); }
+.statrow { display: flex; flex-wrap: wrap; gap: 28px; margin: 4px 0 8px; }
+.stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); }
+.btn { font-family: var(--sans); font-size: 11.5px; text-transform: uppercase; letter-spacing: 1.5px; border-radius: 4px; padding: 9px 18px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn.small { padding: 4px 10px; font-size: 10px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+input, select, textarea { font-family: var(--sans); font-size: 13.5px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; width: 100%; background: #fff; }
+.formgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; align-items: end; }
+.icon { width: 16px; height: 16px; vertical-align: -3px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#ingest-bar { display: none; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+#ingest-bar .track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 5px; }
+#ingest-bar .fill { height: 100%; width: 30%; background: var(--accent); border-radius: 2px; animation: slide 1.2s ease-in-out infinite alternate; }
+@keyframes slide { from { margin-left: 0; } to { margin-left: 70%; } }
+
+/* ---- Phone layout -------------------------------------------------------
+   Both parents read this on a phone on the home network, so the phone is the
+   primary target, not an afterthought. The rule for every rule below: nothing
+   scrolls sideways. A row that cannot fit wraps onto a second line instead. */
+@media (max-width: 720px) {
+  .shell { padding: 0 14px; }
+  main { padding: 20px 0 44px; }
+  header.site .shell { gap: 10px 20px; padding-top: 14px; padding-bottom: 10px; }
+  header.site .shell { align-items: center; justify-content: space-between; }
+  /* Folded by default on a phone. The summary row says where you are and opens the list. */
+  .navmenu { flex: 1 1 100%; }
+  .navmenu > summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; list-style: none; cursor: pointer; padding: 6px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--ink); }
+  .navmenu-btn { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 5px 10px; font-size: 11px; }
+  .navmenu[open] .navmenu-btn { background: var(--accent); color: #fff; }
+  nav.main { flex-direction: column; gap: 10px; width: 100%; padding: 8px 0 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+  .navgroup { border-left: 0; padding: 0; gap: 4px 18px; }
+  .navgroup-name { display: block; flex-basis: 100%; font-size: 10px; letter-spacing: 1.8px; text-transform: uppercase; color: var(--accent); }
+  nav.main a { padding: 4px 0; font-size: 12.5px; }           /* a taller tap target */
+  h1 { font-size: 28px; margin-bottom: 14px; }
+  h2 { font-size: 19px; }
+  .card { padding: 14px; border-radius: 6px; }
+  .statrow { gap: 8px 22px; }
+  .num { font-size: 26px; }
+
+  /* An event row becomes two lines. Chips are nowrap by design, so keeping them
+     inline with the title is what forced the page wider than the screen. They go
+     to a second line UNDER the title — you scan this list by title, so the title
+     leads and the labels follow. */
+  .ev { flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 9px 0; }
+  .ev > .when { order: 1; }
+  .ev > .when:empty { display: none; }     /* no clock time = no empty 52px gutter */
+  .ev > .sub { order: 1; }
+  /* flex-basis 0, not auto: with auto the browser sizes the line from the WHOLE
+     title before shrinking, so a long title takes the line and knocks the dismiss
+     button onto its own row. Basis 0 keeps the X on the title's line, always. */
+  .ev > details, .ev > .title { order: 2; flex: 1 1 0; }
+  .ev > form { order: 3; flex: none; margin-left: auto; }
+  /* A zero-height full-width flex item — the only reliable way to force a line
+     break in a wrapping flex row without restructuring the markup. */
+  .ev::after { content: ''; order: 4; flex: 0 0 100%; height: 0; }
+  .ev > .chip { order: 5; font-size: 10px; padding: 2px 7px; }
+  .ev summary { line-height: 1.35; }
+  /* The dismiss X sits beside every row; at full button weight it out-shouts the
+     event it belongs to. Same tap target, quieter ink. */
+  .ev > form .btn { border-color: transparent; color: var(--muted); padding: 5px 7px; }
+  .details-body { white-space: normal; }
+
+  .catfilter { gap: 6px 5px; }
+  .catchip { padding: 5px 10px; }
+  .btn { padding: 10px 16px; }
+  .btn.small { padding: 6px 10px; }        /* ~30px tall — a thumb, not a mouse */
+  .formgrid { grid-template-columns: 1fr 1fr; }
+  .formgrid label:first-child { grid-column: 1 / -1; }
+
+  .ti { flex-wrap: wrap; gap: 4px 8px; }
+  .ti > .when { order: 1; }
+  .ti > .when:empty { display: none; }
+  .ti > details { order: 2; flex: 1 1 0; }
+  .ti::after { content: ''; order: 3; flex: 0 0 100%; height: 0; }
+  .ti > .chip { order: 4; font-size: 10px; padding: 2px 7px; }
+  .trip-count { text-align: left; }
+  .trip-facts { grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+
+  /* Last resort for a wide table that has no stacked mobile form: scroll the
+     TABLE, never the page. Kept visible with a hairline so it reads as scrollable. */
+  .tablewrap { overflow-x: auto; }
+}
+/* ---- Trip -----------------------------------------------------------------
+   The itinerary is read in two modes: skimming for "what's next" and hunting for
+   one confirmation number. Both need the same rows, so every entry is a summary
+   line that opens onto its full detail rather than two separate lists. */
+.trip-hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 26px; min-width: 0; }
+.trip-hero .where { flex: 1 1 0; min-width: 0; }
+.trip-count { text-align: right; }
+.trip-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 24px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.trip-facts > div { min-width: 0; }
+.trip-facts .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); }
+.trip-facts .val { font-size: 13.5px; }
+.ti { display: flex; gap: 10px; align-items: baseline; padding: 9px 0; min-width: 0; }
+.ti + .ti { border-top: 1px dashed var(--line); }
+.ti .when { min-width: 58px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ti details { flex: 1 1 0; min-width: 0; }
+.ti summary { cursor: pointer; list-style: none; }
+.ti summary::-webkit-details-marker { display: none; }
+.ti .glance { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.ti .ti-body { font-size: 13px; color: var(--muted); margin-top: 7px; }
+.ti .ti-body p { margin-bottom: 6px; }
+.ti .ti-body b { color: var(--ink); font-weight: 600; }
+.ti.is-open summary, .ti.is-decision summary { font-weight: 600; }
+.chip.k-flight { background: var(--quiet-soft); color: var(--quiet); }
+.chip.k-stay { background: var(--accent-soft); color: var(--accent); }
+.chip.k-transport { background: var(--ok-soft); color: var(--ok); }
+.chip.k-activity { background: var(--ok-soft); color: var(--ok); }
+.chip.k-food { background: var(--accent-soft); color: var(--accent); }
+.chip.k-admin { background: rgba(29,26,22,.06); color: var(--muted); }
+.chip.k-money { background: var(--warn-soft); color: var(--warn); }
+.chip.st-open { background: var(--warn-soft); color: var(--warn); }
+.chip.st-decision { background: var(--err-soft); color: var(--err); }
+.chip.st-booked { background: var(--ok-soft); color: var(--ok); }
+.chip.st-done { background: rgba(29,26,22,.06); color: var(--muted); }
+/* An open item with no stated reason is a nag. The reason IS the next action, so it
+   is printed in the row rather than hidden behind the summary. */
+.openbox { margin-top: 7px; padding: 8px 10px; border-left: 2px solid var(--warn); background: var(--warn-soft); border-radius: 0 4px 4px 0; font-size: 12.5px; color: var(--ink); }
+.openbox.hard { border-left-color: var(--err); background: var(--err-soft); }
+/* An option is not a warning. Same shape, neutral ink -- it is a menu, not a list
+   of things going wrong. */
+.openbox.opt { border-left-color: var(--accent); background: var(--accent-soft); }
+.chip.st-option { background: var(--accent-soft); color: var(--accent); }
+.chip.st-skipped { background: rgba(29,26,22,.06); color: var(--muted); }
+.ti.is-skipped summary { text-decoration: line-through; }
+.ti.is-skipped { opacity: .6; }
+.openbox .settle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.openbox .settle form { margin: 0; }
+.kv { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 6px; font-size: 12.5px; }
+.kv > span { min-width: 0; }
+.trip-add summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+
+/* ---- Trip cover -----------------------------------------------------------
+   Full-bleed via the 50vw margin trick. 100vw includes the desktop scrollbar, so
+   the cover can poke ~15px past the classic-scrollbar viewport; overflow-x:clip
+   absorbs that sliver without creating a scroll container. check_mobile.py still
+   sees every element's true rect, so the gate keeps its teeth. */
+html, body { overflow-x: clip; }
+.triphero { position: relative; width: 100vw; margin-left: calc(50% - 50vw);
+  margin-top: -28px; background: #12242e; overflow: hidden;
+  min-height: clamp(380px, 56vh, 620px); display: flex; align-items: flex-end; }
+.triphero .bg { position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; }
+/* Two scrims: a whisper at the top so the sky never blows out the eyebrow, weight at
+   the bottom where the type actually sits. River slate, not black -- black turns
+   turquoise water gray. */
+.triphero .scrim { position: absolute; inset: 0; background:
+  linear-gradient(185deg, rgba(13,31,41,.32) 0%, rgba(13,31,41,0) 38%),
+  linear-gradient(180deg, rgba(13,31,41,0) 40%, rgba(13,31,41,.66) 100%); }
+/* The signature: the photograph does not end, it dissolves into the paper the way
+   spray dissolves over the gorge. The facts card rises out of this band. */
+.triphero .mist { position: absolute; left: 0; right: 0; bottom: -1px; height: 92px;
+  background: linear-gradient(180deg, rgba(253,252,250,0) 0%,
+    rgba(253,252,250,.4) 55%, #fdfcfa 100%); pointer-events: none; }
+.heroinner { position: relative; z-index: 1; width: 100%; max-width: 1080px;
+  margin: 0 auto; padding: 88px 20px 108px; display: flex; align-items: flex-end;
+  gap: 12px 32px; flex-wrap: wrap; color: #fff; }
+.heromain { flex: 1 1 300px; min-width: 0; }
+.triphero .eyebrow { color: rgba(255,255,255,.85); margin-bottom: 10px;
+  text-shadow: 0 1px 10px rgba(9,22,30,.6); }
+.triphero h1 { color: #fff; margin-bottom: 10px; line-height: 1.02;
+  font-size: clamp(44px, 7.5vw, 88px); text-shadow: 0 2px 28px rgba(9,22,30,.45); }
+.herosub { font-size: 13.5px; color: rgba(255,255,255,.9);
+  text-shadow: 0 1px 12px rgba(9,22,30,.5); }
+.herocount { text-align: right; padding-bottom: 4px;
+  text-shadow: 0 2px 20px rgba(9,22,30,.5); }
+.herocount .n { font-family: var(--serif); font-weight: 300; line-height: .95;
+  font-size: clamp(48px, 6vw, 80px); font-variant-numeric: tabular-nums; }
+.herocount .w { font-size: 10.5px; text-transform: uppercase; letter-spacing: 2.2px;
+  color: #ddb877; margin-top: 4px; }
+/* ---- Drag a card onto a day ----------------------------------------------
+   The grip is the ONLY element with touch-action:none, so a finger anywhere else
+   still scrolls the page; dragging starts only from the dots. */
+.grip { cursor: grab; touch-action: none; border: 0; background: none; padding: 4px 2px;
+  color: var(--muted); line-height: 0; align-self: center; }
+.grip:active { cursor: grabbing; }
+.grip .icon { width: 15px; height: 15px; vertical-align: 0; }
+.ti > .grip { order: 0; flex: none; margin-left: -4px; }
+.ideacard { position: relative; }
+.ideacard > .grip { position: absolute; top: 8px; right: 6px; }
+.ideacard .nm { padding-right: 26px; }
+body.dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+.dragghost { position: fixed; z-index: 40; pointer-events: none; opacity: .92;
+  transform: rotate(1.5deg); background: #fff; border: 1px solid var(--accent);
+  border-radius: 8px; padding: 10px 12px; overflow: hidden; max-height: 120px; }
+.dragghost .rowacts, .dragghost .whenedit, .dragghost .grip { display: none; }
+.draglift { opacity: .45; }
+[data-drop].dropover { outline: 2px dashed var(--accent); outline-offset: -2px;
+  background: var(--accent-soft); }
+
+/* The home-page trip banner inside its 30-day window: looks like the trip. */
+.tripbanner { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+  min-height: 190px; padding: 18px 20px; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--line); background-size: cover; background-position: center 38%;
+  color: #fff; text-decoration: none; margin-bottom: 16px; }
+.tripbanner .tb-main { flex: 1 1 220px; min-width: 0;
+  text-shadow: 0 1px 14px rgba(9,22,30,.55); }
+.tripbanner .tb-name { font-family: var(--serif); font-weight: 300; font-size: 24px; }
+.tripbanner .tb-sub { font-size: 12.5px; color: rgba(255,255,255,.92); margin-top: 2px; }
+.tripbanner .tb-cta { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.5px;
+  border: 1px solid rgba(255,255,255,.65); border-radius: 4px; padding: 7px 13px;
+  white-space: nowrap; }
+.tripbanner:hover .tb-cta { background: rgba(255,255,255,.14); }
+
+/* No files for this trip yet: same cover, quiet slate, less height. */
+.triphero.bare { min-height: 250px; }
+.triphero.bare .mist { display: none; }
+/* The facts rise out of the mist band and onto the page. */
+.tripfacts { position: relative; z-index: 2; margin-top: -58px; }
+@media (prefers-reduced-motion: reduce) { .triphero video { display: none; } }
+@media (max-width: 720px) {
+  .triphero { margin-top: -20px; min-height: clamp(340px, 58vh, 540px); }
+  .heroinner { padding: 72px 14px 96px; }
+  .herocount { text-align: left; padding-bottom: 0; }
+  .tripfacts { margin-top: -52px; }
+}
+
+/* ---- Trip workspace -------------------------------------------------------
+   The two axes, drawn so they cannot be confused with each other. Planning uses
+   PENCIL (dashed) versus INK (solid); booking uses the semantic ok/warn colors.
+   A dashed row is a thing nobody has committed to; that is the whole language. */
+.chip.pl-idea { background: var(--quiet-soft); color: var(--quiet); border: 1px dashed var(--quiet); }
+.chip.pl-penciled { background: transparent; color: var(--accent); border: 1px dashed var(--accent); }
+.chip.pl-doing { background: var(--accent); color: #fff; }
+.chip.pl-dropped { background: transparent; color: var(--muted); border: 1px solid var(--line); text-decoration: line-through; }
+.chip.bk-booked { background: var(--ok-soft); color: var(--ok); }
+.chip.bk-todo { background: var(--warn-soft); color: var(--warn); }
+.chip.bk-none { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.chip.tag { background: var(--bg-alt); color: var(--muted); text-transform: none; letter-spacing: .2px; font-size: 11px; }
+
+.viewswitch { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.viewswitch a { text-decoration: none; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1.3px; padding: 8px 15px; }
+.viewswitch a + a { border-left: 1px solid var(--line); }
+.viewswitch a.on { background: var(--accent); color: #fff; }
+.modebar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 22px 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.modebar .spacer { flex: 1 1 0; min-width: 0; }
+
+/* The board. Days on the left, the shelf of things you might do on the right. */
+.board { display: grid; gap: 20px; align-items: start; }
+.board > * { min-width: 0; }
+@media (min-width: 1000px) { .board { grid-template-columns: minmax(0,1fr) 340px; } }
+@media (min-width: 1000px) { .shelf { position: sticky; top: 14px; } }
+
+.daycard { background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.daycard + .daycard { margin-top: 16px; }
+.dayhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--bg-alt); }
+.dayhead .dow { font-family: var(--serif); font-size: 18px; }
+.dayhead .dt { font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--muted); }
+.dayhead .meter { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
+.dayhead .meter b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.dayacts { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; align-items: center; }
+.daybody { padding: 4px 18px 14px; }
+.daybody .ti:first-child { border-top: 0; }
+
+/* A part of day is a real answer, not a blank -- it reads as a word, not a gap. */
+.ti .when .soft { font-style: italic; }
+.ti .when .to { display: block; font-size: 11px; opacity: .75; }
+.ti.is-penciled { border-left: 2px dashed var(--accent); margin-left: -10px; padding-left: 8px; }
+/* The row of buttons is a flex CHILD of .ti, and .ti only wrapped below 720px -- so on a
+   laptop that un-shrinkable row sized the whole column and pushed the page sideways at
+   every width. Caught by check_mobile.py, invisible by eye. */
+.ti { flex-wrap: wrap; }
+.ti > .rowacts, .ti > .whenedit { flex: 0 0 100%; }
+/* The phone block below assigns an explicit order to .when/details/.chip (1/2/4). Any
+   child WITHOUT one defaults to 0 and jumps to the front -- which put the whole button
+   row above the title of the item it belongs to on every phone. */
+.ti > .rowacts { order: 5; }
+.ti > .whenedit { order: 6; }
+.ti > details { flex: 1 1 220px; }
+.gapline { font-size: 11.5px; color: var(--muted); padding: 2px 0 2px 68px; font-variant-numeric: tabular-nums; }
+.flag { display: block; font-size: 12.5px; padding: 8px 11px; border-radius: 0 5px 5px 0; margin: 8px 0 2px; }
+.flag.warn { background: var(--warn-soft); border-left: 2px solid var(--warn); }
+.flag.err { background: var(--err-soft); border-left: 2px solid var(--err); }
+.flag.calm { background: var(--quiet-soft); border-left: 2px solid var(--quiet); }
+
+.whenedit { display: none; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-top: 9px; padding: 10px; background: var(--bg-alt); border-radius: 6px; }
+.whenedit.open { display: flex; }
+.whenedit label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); flex: 1 1 96px; min-width: 0; }
+.whenedit input, .whenedit select { margin-top: 3px; }
+.rowacts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+.rowacts form { margin: 0; }
+.mini { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; font-family: var(--sans); }
+.mini:hover { border-color: var(--accent); color: var(--accent); }
+.mini.solid { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mini[disabled] { opacity: .45; cursor: default; }
+.mini[disabled]:hover { border-color: var(--line); color: var(--muted); }
+
+/* The shelf: candidates, nothing committed to. */
+.ideacard { background: #fff; border: 1px solid var(--line); border-left: 2px dashed var(--line); border-radius: 6px; padding: 12px 13px; }
+.ideacard + .ideacard { margin-top: 10px; }
+.ideacard .nm { font-size: 14px; line-height: 1.35; }
+.ideacard .gl { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.ideacard .facts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.shelflist { max-height: none; }
+@media (min-width: 1000px) { .shelflist { max-height: 72vh; overflow-y: auto; padding-right: 4px; } }
+
+/* Add your own -- at the top, never collapsed at the bottom. Being able to add a row
+   without asking anyone is the point of the page, so it gets the prime position. */
+.addwrap .head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.addwrap .head p { flex: 1 1 240px; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.addgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 11px; margin-top: 14px; }
+.addgrid > * { min-width: 0; }
+.addgrid label, .addwrap .wide { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.addgrid label input, .addgrid label select, .addwrap .wide textarea { margin-top: 4px; text-transform: none; letter-spacing: normal; font-size: 13.5px; }
+.addwrap .wide { margin-top: 11px; }
+.addacts { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.addacts .note { font-size: 12px; color: var(--muted); flex: 1 1 220px; min-width: 0; }
+
+/* Day sheet: the clean output. Only what you are actually doing. */
+.sline { display: flex; gap: 14px; padding: 11px 0; align-items: baseline; }
+.sline + .sline { border-top: 1px dashed var(--line); }
+.sline .t { width: 78px; flex: 0 0 78px; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--accent); }
+.sline .t .soft { font-style: italic; }
+.sline .c { flex: 1 1 0; min-width: 0; }
+.sline .c .d { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.sline .money { font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.sheetfoot { margin-top: 14px; padding-top: 11px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 16px; font-size: 12.5px; color: var(--muted); }
+.sheetfoot b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+#gcal-bar { display: none; margin-top: 8px; font-size: 12.5px; color: var(--muted); width: 100%; }
+#gcal-bar .track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 5px; }
+#gcal-bar .fill { height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width .2s; }
+
+@media (max-width: 720px) {
+  .dayhead .meter { margin-left: 0; width: 100%; gap: 4px 14px; }
+  .gapline { padding-left: 0; }
+  .sline .t { width: 62px; flex: 0 0 62px; }
+  .shelf { position: static; }
+}
+</style>
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="ic-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></symbol>
+  <symbol id="ic-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></symbol>
+  <symbol id="ic-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></symbol>
+  <symbol id="ic-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></symbol>
+  <symbol id="ic-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="ic-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+  <symbol id="ic-square" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/></symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="ic-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+  <symbol id="ic-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></symbol>
+  <symbol id="ic-list" viewBox="0 0 24 24"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><polyline points="3 6 4 7 6 5"/><polyline points="3 12 4 13 6 11"/><polyline points="3 18 4 19 6 17"/></symbol>
+</svg>
+<header class="site">
+  <div class="shell">
+    <a class="brand" href="/">Family<span>Manager</span></a>
+    {# The header, grouped. A dozen flat links wrapped to three rows on a phone and read as
+       a wall; the groups are how a parent actually thinks about it: the plan, the kids,
+       school, and the house. On a laptop the groups sit in one row with thin separators.
+       Under 720px they fold into a Menu (a native <details>, no JS to break) that names the
+       section you are in. The kid links come from the household, one per kid. #}
+    {% set nav_path = request.path %}
+    {% set kid_links = [] %}
+    {% for k in KIDS %}{% set _ = kid_links.append(('/kid/' ~ k|urlencode, k, nav_path == '/kid/' ~ k)) %}{% endfor %}
+    {% set nav_groups = [
+      ('Plan', [('/actions', 'Actions', nav_path == '/actions'), ('/weekly-review', 'Weekly review', nav_path == '/weekly-review')]),
+      ('Kids', kid_links),
+      ('School', [('/mail', 'Mail', nav_path.startswith('/mail')), ('/days-off', 'Days off', nav_path == '/days-off'),
+                  ('/checklist', 'Checklist', nav_path == '/checklist'),
+                  ('/events', 'All events', nav_path == '/events')]),
+      ('Home', [('/sitters', 'Sitters', nav_path.startswith('/sitters')),
+                ('/payments', 'Payments', nav_path in ['/payments', '/payment-plans']), ('/trips', 'Trips', nav_path.startswith('/trip')),
+                ('/gatherings', 'Gatherings', nav_path.startswith('/gathering')),
+                ('/scan', 'Scan', nav_path.startswith('/scan'))]),
+    ] %}
+    {% set nav = namespace(section='This Week', page='This Week') %}
+    {% if nav_path.startswith('/ask') %}{% set nav.section = 'Ask' %}{% set nav.page = 'Ask' %}{% endif %}
+    {% for gname, links in nav_groups %}{% for href, label, on in links %}{% if on %}{% set nav.section = gname %}{% set nav.page = label %}{% endif %}{% endfor %}{% endfor %}
+    {# `open` in the markup: a closed <details> hides its content and CSS cannot open one, so
+       the laptop row would be EMPTY. The one-liner below closes it on a phone before paint. #}
+    <details class="navmenu" id="navmenu" open>
+      <summary>
+        <span class="navmenu-where">{{ nav.page }}{% if nav.section != nav.page %} <span class="muted">· {{ nav.section }}</span>{% endif %}</span>
+        <span class="navmenu-btn"><svg class="icon"><use href="#ic-list"/></svg> Menu</span>
+      </summary>
+      <nav class="main">
+        <div class="navgroup">
+          <a href="/" class="{{ 'active' if nav_path == '/' }}">This Week</a>
+          <a href="/ask" class="{{ 'active' if nav_path.startswith('/ask') }}">Ask</a>
+        </div>
+        {% for gname, links in nav_groups %}
+        <div class="navgroup">
+          <span class="navgroup-name">{{ gname }}</span>
+          {% for href, label, on in links %}<a href="{{ href }}" class="{{ 'active' if on }}">{{ label }}</a>{% endfor %}
+        </div>
+        {% endfor %}
+        {% if auth_mode in ('google', 'passcode') and user_email %}
+        <div class="navgroup"><a href="/auth/logout" title="{{ user_email }}">Sign out</a></div>
+        {% endif %}
+      </nav>
+    </details>
+    <script>if (window.matchMedia('(max-width: 720px)').matches) document.getElementById('navmenu').open = false;</script>
+  </div>
+</header>
+<main><div class="shell">
+{% if IS_EXAMPLE %}<div class="example-banner">Showing the example family. Open this folder in Claude Code and say "set up my family".</div>{% endif %}
+<div style="display:flex;justify-content:flex-end;margin-bottom:14px;gap:8px;align-items:center">
+  <label for="household-parent" class="small muted">Using as</label>
+  <select id="household-parent" style="width:auto;max-width:160px;font-size:13px" aria-label="Which parent is making changes?">
+    <option value="">Choose your name</option>{% for p in PARENTS %}<option>{{ p }}</option>{% endfor %}
+  </select>
+</div>
+<script>
+// The parents every page's "who did this" check accepts (static/household.js reads it).
+window.FM_PARENTS = {{ PARENTS|tojson }};
+const householdParent = document.getElementById('household-parent');
+householdParent.value = localStorage.getItem('fm_who') || '';
+householdParent.addEventListener('change', () => {
+  localStorage.setItem('fm_who', householdParent.value);
+  document.querySelectorAll('.who-field').forEach(f => f.value = householdParent.value);
+});
+</script>
+{% block content %}{% endblock %}
+</div></main>
+<script>
+// Same parent picker the checklist uses (fm_who). AUTH_MODE=dev on the home network means
+// there is no signed-in identity, so a ruling with no name attached is a ruling the
+// other parent cannot ask about.
+document.querySelectorAll('.who-field').forEach(f => {
+  f.value = localStorage.getItem('fm_who') || '';
+});
+</script>
+</body>
+</html>

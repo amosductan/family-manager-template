@@ -1,0 +1,35 @@
+{
+  "_comment": "A fictional family. Copy this to data/household.json and make it yours, or open the folder in Claude Code and say 'set up my family'.",
+  "family_name": "The Rivera household",
+  "timezone": "America/New_York",
+  "hub_url": "http://127.0.0.1:5088",
+  "parents": [
+    {"name": "Sam", "email": "sam@example.com"},
+    {"name": "Jordan", "email": "jordan@example.com"}
+  ],
+  "self_email": "sam@example.com",
+  "kids": [
+    {"name": "Ava", "birthday": "03-14", "grade": "1st grade",
+     "school": "Maple Street Elementary", "school_short": "Maple Street",
+     "aliases": ["first grade", "1st grade"]},
+    {"name": "Leo", "birthday": "10-02", "grade": "Pre-K",
+     "school": "Little Oaks Preschool", "school_short": "Little Oaks",
+     "aliases": ["pre-k", "prek"]}
+  ],
+  "coverage_options": ["Camp", "Grandparents", "Babysitter", "Other"],
+  "trusted_organizers": ["jordan@example.com"],
+  "context": "The family also uses the Riverside Rec Center for swim lessons.",
+  "sources": [
+    {"key": "elementary", "name": "Maple Street Elementary", "kid": "Ava",
+     "sender_match": "maplestreet.example.org", "cadence": "weekly",
+     "active_months": "school_year"},
+    {"key": "preschool", "name": "Little Oaks weekly update", "kid": "Leo",
+     "sender_match": "littleoaks.example.org", "cadence": "weekly"},
+    {"key": "rec_center", "name": "Riverside Rec Center", "kid": "Both",
+     "sender_match": "riversiderec.example.org", "cadence": "monthly"},
+    {"key": "partner_forward", "name": "Jordan's forwards (school/kid mail)", "kid": "Both",
+     "sender_match": "jordan@example.com", "keywords": ["school", "class", "teacher",
+     "dismissal", "closed", "camp", "registration", "form", "permission", "supplies",
+     "conference", "field trip", "picture day", "due", "deadline", "rsvp"]}
+  ]
+}

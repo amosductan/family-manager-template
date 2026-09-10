@@ -1,0 +1,6 @@
+# Standalone web app (no numeric deps) -> a Python floor only, no ceiling.
+[project]
+name = "family-manager"
+version = "1.1.0"
+description = "A household mental-load manager: school mail, calendars, days off, and an assistant you can ask. Runs on your own machine."
+requires-python = ">=3.11"

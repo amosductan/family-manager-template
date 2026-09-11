@@ -1,7 +1,7 @@
 """Family Manager — School Hub dashboard (Flask).
 
 Local: python app.py -> http://127.0.0.1:5088 (AUTH_MODE=dev, no login).
-Shared: AUTH_MODE=google + FM_ALLOWLIST, or keep it on a private network (see CLAUDE.md).
+Shared: AUTH_MODE=google + FM_ALLOWLIST, or keep it on a private network (see AGENTS.md).
 """
 import io
 import json

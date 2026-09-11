@@ -1,5 +1,5 @@
 {
-  "_comment": "A fictional family. Copy this to data/household.json and make it yours, or open the folder in Claude Code and say 'set up my family'.",
+  "_comment": "A fictional family. Copy this to data/household.json and make it yours, or open the folder in your AI coding assistant and say 'set up my family'.",
   "family_name": "The Rivera household",
   "timezone": "America/New_York",
   "hub_url": "http://127.0.0.1:5088",

@@ -2,7 +2,7 @@
 
 A household mental-load manager that runs on your own machine. It reads the school mail, opens every attachment and link, merges your calendars, tracks who's covering each day the kids are out, and answers questions about all of it in plain words.
 
-Built for one family's real use. It's shared here as a template you set up with Claude Code.
+Built for one family's real use. It's shared here as a template you set up with an AI coding assistant: Codex, Cursor, Claude Code, or whichever you use.
 
 <p>
   <img src="docs/screenshots/home.png" alt="The home page for the fictional example family" width="68%">
@@ -42,7 +42,7 @@ Every table downloads as a spreadsheet.
 
 ## Set it up
 
-You need Python 3.11+ and, for the AI features, [Claude Code](https://claude.com/claude-code) signed in to your Claude account. Without it, briefings fall back to plain extraction and Ask shows its matches without an answer.
+You need Python 3.11+ and, for the AI features (mail briefings and Ask), the `claude` command-line tool signed in to a Claude account. Without it, briefings fall back to plain extraction and Ask shows its matches without an answer.
 
 ```bash
 git clone <this repo>
@@ -52,7 +52,7 @@ python demo_seed.py  # optional: a few weeks of the example family's school stuf
 python app.py        # http://127.0.0.1:5088
 ```
 
-Then open the folder in Claude Code and say **"set up my family."** It asks about your household, writes `data/household.json`, walks you through the Gmail app password and calendar access, runs the first mail check, and schedules the nightly run. [CLAUDE.md](CLAUDE.md) is the script it follows, and you can follow it by hand.
+Then open the folder in your AI coding assistant and say **"set up my family."** It asks about your household, writes `data/household.json`, walks you through the Gmail app password and calendar access, runs the first mail check, and schedules the nightly run. [AGENTS.md](AGENTS.md) is the script it follows, and you can follow it by hand.
 
 ## Privacy
 

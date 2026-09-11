@@ -8,7 +8,7 @@ person, a school or an address.
     data/household.json            yours (gitignored -- it never leaves your machine)
     config/household.example.json  a fictional family, used until you write your own
 
-Set it up by hand, or open this folder in Claude Code and say "set up my family".
+Set it up by hand, or open this folder in your AI coding assistant and say "set up my family".
 
     python family.py               # print what the app currently believes
     python family.py --self-test

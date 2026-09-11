@@ -26,6 +26,10 @@ approving calendar access).
 4. **Gmail.** The person creates an app password (Google Account > Security > 2-Step
    Verification > App passwords; 2-Step Verification must be on). Put it in `.env` as
    `GMAIL_APP_PASSWORD=...` (copy `.env.example`). Never print it back.
+   Then pick the model provider. Ask whether they have a Claude or ChatGPT plan (sign in to the
+   `claude` or `codex` command-line tool, and leave `FM_LLM_PROVIDER` blank) or would rather use
+   an API key or a local model (set `FM_LLM_PROVIDER` and its key in `.env`). Run
+   `python llm.py --check`; it must answer.
 5. **First mail check.** `python ingest.py --days 60`. Then start the app (`python app.py`) and
    open `/mail/sources`: the discovery pass suggests senders that look like school mail. Go
    through them with the person and approve the real ones.
@@ -52,5 +56,5 @@ approving calendar access).
 - After any template or CSS change, run `python check_mobile.py http://127.0.0.1:5088`. The
   phone is the main screen, and a page can look fine on a laptop while scrolling sideways on a phone.
 - Flask caches templates when debug is off. Restart the app before trusting a check.
-- Model calls go through `claude_headless.py` only. It strips `ANTHROPIC_API_KEY` so a key in
-  the environment is never billed, and it logs cost to `data/model_costs.jsonl`.
+- Model calls go through `llm.complete()` only. It picks the provider from `.env`, logs every
+  call's cost to `data/model_costs.jsonl`, and never bills an API key the household didn't name.

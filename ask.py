@@ -25,8 +25,8 @@ The rules it keeps:
 - DOCUMENTS stay on this box. Text is extracted locally (pypdf / docx / xlsx / text; images
   and scanned PDFs are transcribed by the same model with only its Read tool), 12+ digit
   runs are masked to their last four BEFORE anything is sent, and what is sent goes only
-  over the claude.ai subscription via claude_headless. The file is kept under data/ask/<id>/.
-- A FAILED MODEL CALL IS NOT AN EMPTY ANSWER. If Claude does not answer, the page says why
+  through the household's model (llm.py). The file is kept under data/ask/<id>/.
+- A FAILED MODEL CALL IS NOT AN EMPTY ANSWER. If the model doesn't answer, the page says why
   and still shows the matching rows.
 - Runs on a thread; the page polls /ask/<id>.json with a staged progress line.
 """
@@ -43,7 +43,7 @@ from pathlib import Path
 import db
 import family
 
-MODEL = "claude-sonnet-5"
+import llm  # noqa: E402 -- which model answers is the household's choice (llm.py, FM_LLM_PROVIDER)
 TIMEOUT = 200
 MAX_UPLOAD = 15 * 1024 * 1024
 MAX_DOC_CHARS = 45000
@@ -596,21 +596,10 @@ def build_prompt(question: str, ctx: dict, today: date, doc: dict | None = None)
 
 
 def call_model(prompt: str) -> tuple[str, str]:
-    """(raw reply, error). Exactly one of them is non-empty. Goes through claude_headless,
-    which proves the subscription (SubscriptionRequired is caught below) and records the
-    call in the cost ledger."""
-    try:
-        import claude_headless
-        r = claude_headless.run(prompt, MODEL, timeout=TIMEOUT, purpose="ask")
-    except subprocess.TimeoutExpired:
-        return "", f"Claude didn't answer within {TIMEOUT}s"
-    except Exception as exc:
-        return "", f"Claude didn't run: {exc}"[:300]
-    out = (r.stdout or "").strip()
-    if r.returncode == 0 and out:
-        return out, ""
-    why = (r.stderr or "").strip() or out or "empty output"
-    return "", f"claude exit {r.returncode}: {why}"[:300]
+    """(raw reply, error). Exactly one of them is non-empty. Goes through llm.complete,
+    which uses the household's provider and records the call in the cost ledger."""
+    r = llm.complete(prompt, purpose="ask", timeout=TIMEOUT)
+    return (r.text, "") if r.ok else ("", f"the model didn't answer: {r.error}"[:300])
 
 
 def parse_reply(raw: str) -> tuple[str, list[dict]]:
@@ -833,7 +822,7 @@ def start(question: str, who: str | None, upload: tuple[str, bytes] | None = Non
     ensure(con)
     cur = con.execute("INSERT INTO ask_log (asked_at, who, question, status, stage, model) VALUES (?,?,?,?,?,?)",
                       (datetime.now().isoformat(timespec="seconds"), who, question.strip()[:500],
-                       "working", "Reading the document" if upload else "Finding matching entries", MODEL))
+                       "working", "Reading the document" if upload else "Finding matching entries", llm.describe()))
     ask_id = cur.lastrowid
     con.commit()
     con.close()

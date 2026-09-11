@@ -126,11 +126,14 @@ def sub_stage(step: str) -> str | None:
 
 def _env() -> dict:
     """The child env: claude_headless.env(utf8=True) -- strips any Anthropic API key the
-    same way every other spawn here does and PROVES the subscription first; UTF-8 forced so
+    same way every other spawn here does and, when the provider is the claude tool, PROVES the
+    subscription first; UTF-8 forced so
     an emoji subject can't kill a step."""
     import claude_headless
     e = claude_headless.env(utf8=True)
-    claude_headless.assert_subscription(e)
+    import llm
+    if llm.provider() == "claude-cli":
+        claude_headless.assert_subscription(e)
     return e
 
 

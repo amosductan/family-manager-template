@@ -16,7 +16,7 @@ This module makes the sweep DEEP for every source:
       original; a link is fetched ONCE (SDD tracker links are single-use) and never re-probed.
 
   summarize(subject, body, docs, anchor) -> dict
-      A model pass (via `claude -p`, through claude_headless like every model call here) over
+      A model pass (through llm.py, like every model call here) over
       the body PLUS every document's text, returning a human summary, dated events, and the
       action items that ask something of a parent. Degrades to a deterministic summary when
       the model is unavailable — never silently returns nothing.
@@ -42,7 +42,7 @@ from bs4 import BeautifulSoup
 
 import db
 import family
-import claude_headless
+import llm
 
 UA =("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/128.0 Safari/537.36")
@@ -526,31 +526,14 @@ def _family_prompt(prompt: str) -> str:
             .replace("[[KID_ENUM]]", _kid_enum()))
 
 
-def _claude_exe() -> str:
-    return claude_headless.exe()
-
-
-def _isolated_config_dir() -> str | None:
-    return claude_headless.isolated_config_dir()
-
-
-def _claude_env() -> dict:
-    """ONE home for this now: claude_headless.env() -- strips the personal Anthropic
-    variables, isolates the config dir, and (via assert_subscription at every spawn site)
-    PROVES the child would use the claude.ai subscription before a call is made."""
-    e = claude_headless.env()
-    claude_headless.assert_subscription(e)
-    return e
-
-
 def summarize(subject: str, body: str, docs: list[dict], sent_date: str,
               anchor: date | None = None) -> dict:
     """Fable-5 briefing over the email + all its documents. Falls back to a deterministic
     summary if the model is unavailable — never returns nothing."""
     anchor = anchor or date.today()
     doc_block = _docs_for_prompt(docs)
-    if os.environ.get("FM_NO_CLAUDE") == "1":
-        return _fallback_summary(subject, body, docs, anchor, why="model disabled (FM_NO_CLAUDE)")
+    if (os.environ.get("FM_NO_MODEL") or os.environ.get("FM_NO_CLAUDE")) == "1":
+        return _fallback_summary(subject, body, docs, anchor, why="model disabled (FM_NO_MODEL)")
     # The prompt is full of literal JSON braces ({"date": ...}) so str.format is out —
     # token replacement keeps the examples intact.
     prompt = (_family_prompt(SUMMARY_PROMPT)
@@ -568,62 +551,48 @@ def summarize(subject: str, body: str, docs: list[dict], sent_date: str,
             "You replied with this, which is NOT the JSON object requested:\n\n"
             f"{last[:500]}\n\nDo it again correctly. Output ONLY the JSON object described "
             "below, starting with { and ending with }.\n\n" + prompt)
-        try:
-            r = claude_headless.run(p, "claude-sonnet-5", timeout=150, purpose="mail_summary")
-        except FileNotFoundError:
-            return _fallback_summary(subject, body, docs, anchor, why="claude CLI not found")
-        except Exception as exc:
-            return _fallback_summary(subject, body, docs, anchor, why=f"model call failed: {exc}")
-        raw = (r.stdout or "").strip()
+        r = llm.complete(p, purpose="mail_summary", timeout=150)
+        if not r.ok:
+            # Not a content problem and not worth the JSON retry (an expired login, a
+            # missing key, a timeout): say so by name -- "no JSON after retry" once hid an
+            # expired login for two runs.
+            return _fallback_summary(subject, body, docs, anchor, why=r.error)
+        raw = r.text
         last = raw
-        if "credit balance is too low" in raw.lower():
-            return _fallback_summary(subject, body, docs, anchor,
-                                     why="claude -p: credit balance too low (unset ANTHROPIC_API_KEY)")
-        if "failed to authenticate" in raw.lower() or "oauth session expired" in raw.lower():
-            # Not a content problem and not worth a retry: the machine's Claude login is
-            # gone. Say so by name -- "no JSON after retry" hid this for two runs.
-            return _fallback_summary(subject, body, docs, anchor,
-                                     why="Claude login on this machine has expired -- run "
-                                         "`claude login` here, then use 'Try the briefing again'")
         s, e = raw.find("{"), raw.rfind("}")
         if s >= 0 and e > s:
             try:
                 data = json.loads(raw[s:e + 1])
-                data["_engine"] = "fable-5"
+                data["_engine"] = "model"
+                data["_model"] = f"{r.provider}:{r.model or 'default'}"
                 return _normalize_summary(data)
             except json.JSONDecodeError:
                 continue
     return _fallback_summary(subject, body, docs, anchor, why="model returned no JSON after retry")
 
 
+def is_model_summary(summary: dict | None) -> bool:
+    """Did a model write this briefing (whichever provider), as opposed to the deterministic
+    fallback or a pending placeholder? The mail check uses this to decide what to re-run, so
+    it must not depend on WHICH model: a label per provider would re-summarize every message
+    after a provider switch. Rows written before providers were swappable say "fable-5"."""
+    engine = (summary or {}).get("_engine")
+    return bool(engine) and engine not in ("deterministic", "pending")
+
+
 def transcribe_image(path: str) -> tuple[str, str]:
     """Verbatim text of a screenshot (a class-app post, a photographed paper note), via the
-    same `claude -p` the briefing uses, with ONLY the Read tool allowed so it can open the
-    file. Returns (text, why_empty). Measured on a 900x2000 phone screenshot: about 10s,
+    household's model (llm.py), which is handed the image itself. Returns (text, why_empty). Measured on a 900x2000 phone screenshot: about 10s,
     verbatim. Never raises -- an empty text with a reason is the failure shape."""
-    if os.environ.get("FM_NO_CLAUDE") == "1":
-        return "", "model disabled (FM_NO_CLAUDE)"
-    prompt = ("Read the image file at the path below with your Read tool and transcribe ALL "
-              "the text it contains, verbatim, preserving line breaks. Skip phone status bars, "
-              "app navigation labels and button captions. Output ONLY the transcribed text, "
-              "nothing else.\n\n" + str(path))
-    try:
-        r = claude_headless.run(prompt, "claude-sonnet-5", timeout=180,
-                                tools="Read", extra_args=["--allowedTools", "Read"],
-                                purpose="image_transcribe")
-    except FileNotFoundError:
-        return "", "claude CLI not found"
-    except Exception as exc:
-        return "", f"model call failed: {exc}"
-    raw = (r.stdout or "").strip()
-    if not raw:
-        return "", "model returned nothing" + (f" ({r.stderr.strip()[:200]})" if r.stderr else "")
-    if "credit balance is too low" in raw.lower():
-        return "", "claude -p: credit balance too low (unset ANTHROPIC_API_KEY)"
-    if r.returncode != 0:
-        # The JSON envelope flagged an error; its message is not a transcription.
-        return "", f"model call failed: {raw[:200]}"
-    return raw, ""
+    if (os.environ.get("FM_NO_MODEL") or os.environ.get("FM_NO_CLAUDE")) == "1":
+        return "", "model disabled (FM_NO_MODEL)"
+    prompt = ("Transcribe ALL the text in the attached image, verbatim, preserving line breaks. "
+              "Skip phone status bars, app navigation labels and button captions. Output ONLY "
+              "the transcribed text, nothing else.")
+    r = llm.complete(prompt, purpose="image_transcribe", timeout=180, image=path)
+    if not r.ok:
+        return "", f"model call failed: {r.error}"
+    return r.text, ""
 
 
 def _docs_for_prompt(docs: list[dict]) -> str:

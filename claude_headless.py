@@ -264,13 +264,24 @@ def parse_output(stdout: str) -> dict | None:
 
 
 def record(purpose: str, model: str, *, ok: bool, duration_s: float,
-           parsed: dict | None = None, error: str | None = None) -> dict:
-    """Append one ledger line. A failed call costs 0 by rule, whatever it reported."""
+           parsed: dict | None = None, error: str | None = None,
+           provider: str = "claude-cli", cost_basis: str | None = None) -> dict:
+    """Append one ledger line. Every provider writes here (llm.py passes its own name).
+
+    A failed call costs 0 by rule, whatever it reported. A call nobody can price -- an API
+    call with no price settings, a subscription tool that doesn't report dollars -- records
+    cost None with its basis, never a made-up zero."""
     p = parsed or {}
+    cost = p.get("cost_usd", 0.0)
+    basis = cost_basis or "reported"
+    if not ok:
+        cost, basis = 0.0, "failed"
     entry = {
         "at": datetime.now().isoformat(timespec="seconds"),
         "purpose": purpose or "unknown",
+        "provider": provider,
         "model": model,
+        "cost_basis": basis,
         # Every token the model read: fresh input plus prompt-cache reads and writes. The
         # split is kept beside it because the three are priced differently.
         "input_tokens": (p.get("input_tokens", 0) + p.get("cache_read_tokens", 0)
@@ -278,7 +289,7 @@ def record(purpose: str, model: str, *, ok: bool, duration_s: float,
         "output_tokens": p.get("output_tokens", 0) if ok else 0,
         "cache_read_tokens": p.get("cache_read_tokens", 0) if ok else 0,
         "cache_write_tokens": p.get("cache_write_tokens", 0) if ok else 0,
-        "cost_usd": round(p.get("cost_usd", 0.0), 6) if ok else 0.0,
+        "cost_usd": round(cost, 6) if cost is not None else None,
         "duration_s": round(duration_s, 2),
         "ok": bool(ok),
     }
@@ -388,21 +399,29 @@ def cost_summary(entries: list[dict], today: date | None = None) -> dict:
     last = max(date.fromisoformat(days[-1]), today)
 
     def blank():
-        return {"calls": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+        return {"calls": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
+                "unpriced": 0, "subscription": 0}
 
     def add(b, e):
         b["calls"] += 1
         b["failed"] += 0 if e.get("ok") else 1
         b["input_tokens"] += int(e.get("input_tokens") or 0)
         b["output_tokens"] += int(e.get("output_tokens") or 0)
-        b["cost_usd"] += float(e.get("cost_usd") or 0.0)
+        cost = e.get("cost_usd")
+        if e.get("ok") and cost is None:
+            # Not zero: nobody knows the price. Counted apart so a dollar total never
+            # quietly reads as "that was free".
+            b["subscription" if e.get("cost_basis") == "subscription" else "unpriced"] += 1
+        b["cost_usd"] += float(cost or 0.0)
 
     months: dict[str, dict] = {}
     purposes: dict[str, dict] = {}
+    providers: dict[str, dict] = {}
     total = blank()
     for e in entries:
         add(months.setdefault(e["at"][:7], blank()), e)
         add(purposes.setdefault(e.get("purpose") or "unknown", blank()), e)
+        add(providers.setdefault(e.get("provider") or "claude-cli", blank()), e)
         add(total, e)
     mrows = []
     for m, b in sorted(months.items()):
@@ -415,6 +434,7 @@ def cost_summary(entries: list[dict], today: date | None = None) -> dict:
     prows = [{"purpose": k, **b, "cost_per_day": b["cost_usd"] / span_all}
              for k, b in sorted(purposes.items(), key=lambda kv: -kv[1]["cost_usd"])]
     return {"months": mrows, "purposes": prows,
+            "providers": [{"provider": k, **b} for k, b in sorted(providers.items())],
             "total": {**total, "days": span_all, "cost_per_day": total["cost_usd"] / span_all,
                       "first": first.isoformat()}}
 
@@ -438,10 +458,19 @@ def print_costs(path: Path | None = None) -> int:
     for r in s["purposes"]:
         print(f"{r['purpose'][:17]:<18}{r['calls']:>7}{r['failed']:>8}{r['input_tokens']:>12,}"
               f"{r['output_tokens']:>10,}{r['cost_usd']:>11.4f}{r['cost_per_day']:>10.4f}")
+    print("\nBY PROVIDER")
+    print(hdr)
+    for r in s.get("providers", []):
+        print(f"{r['provider'][:17]:<18}{r['calls']:>7}{r['failed']:>8}{r['input_tokens']:>12,}"
+              f"{r['output_tokens']:>10,}{r['cost_usd']:>11.4f}")
     t = s["total"]
     print(f"\n{'TOTAL':<18}{t['calls']:>7}{t['failed']:>8}{t['input_tokens']:>12,}"
           f"{t['output_tokens']:>10,}{t['cost_usd']:>11.4f}{t['cost_per_day']:>10.4f}")
-    print("\nCost is USD at API list prices as reported by the CLI; failed calls count $0.")
+    print("\nCost is USD: reported by the claude tool, or estimated from FM_LLM_PRICE_IN/OUT."
+          " Failed calls count $0.")
+    if t.get("unpriced") or t.get("subscription"):
+        print(f"{t['unpriced']} call(s) have no price set and {t['subscription']} ran on a "
+              "subscription; neither is in the dollar totals.")
     return 0
 
 

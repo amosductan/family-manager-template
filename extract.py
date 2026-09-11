@@ -2,7 +2,7 @@
 
 First pass is regex/keyword only (per SCOPING: "deterministic date/regex first
 pass; model only where regex can't"). The optional Fable 5 pass is gated behind
-FM_USE_CLAUDE=1 and is OFF by default — cost-watched.
+FM_USE_MODEL=1 and is OFF by default — cost-watched.
 """
 import os
 import re
@@ -154,8 +154,8 @@ def extract_events(text: str, anchor: date | None = None) -> list[dict]:
 
 
 def claude_extract(text: str, anchor: date | None = None) -> list[dict]:
-    """Optional Fable 5 pass via `claude -p` (headless). OFF unless FM_USE_CLAUDE=1."""
-    if os.environ.get("FM_USE_CLAUDE") != "1":
+    """Optional model pass (llm.py). OFF unless FM_USE_MODEL=1 (FM_USE_CLAUDE=1 still works)."""
+    if "1" not in (os.environ.get("FM_USE_MODEL"), os.environ.get("FM_USE_CLAUDE")):
         return []
     prompt = (
         "Extract school events from this email/newsletter text. Return ONLY a JSON "
@@ -166,13 +166,11 @@ def claude_extract(text: str, anchor: date | None = None) -> list[dict]:
         + text[:12000]
     )
     try:
-        # One home for model calls: claude_headless strips any API key, proves the
-        # subscription before spawning, and records the call in the cost ledger.
-        import claude_headless
-        r = claude_headless.run(prompt, "claude-sonnet-5", timeout=180, purpose="extract")
-        if r.returncode != 0:
+        import llm
+        r = llm.complete(prompt, purpose="extract", timeout=180)
+        if not r.ok:
             return []
-        raw = (r.stdout or "").strip()
+        raw = r.text
         start, end = raw.find("["), raw.rfind("]")
         if start >= 0 and end > start:
             items = json.loads(raw[start:end + 1])

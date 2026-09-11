@@ -59,7 +59,7 @@ NO_SUMMARY = os.environ.get("FM_NO_SUMMARY") == "1"
 # One run summarizes at most this many NEW messages, so a first-time backfill of a big
 # window can't run for an hour. School sources are read first (enabled_froms orders gated
 # senders last), so the cap only ever defers low-signal tail mail — which gets its summary
-# on the next run, since a message without a fable-5 summary is re-processed, not skipped.
+# on the next run, since a message without a model summary is re-processed, not skipped.
 MAX_NEW_SUMMARIES = int(os.environ.get("FM_MAX_NEW_SUMMARIES", "40"))
 _summaries_done = [0]
 
@@ -286,7 +286,7 @@ def process_message(con, msg, dry_run=False) -> str:
         # re-running depth for it is exactly the backfill "Check mail now" should do. Only a
         # message that has already been swept AND summarized is a true no-op.
         summ = json.loads(existing["summary"]) if existing["summary"] else {}
-        if existing["swept_at"] and summ.get("_engine") == "fable-5":
+        if existing["swept_at"] and mailsweep.is_model_summary(summ):
             return "dup"
         # else: fall through and (re)run the deep sweep + summary on this stored message.
 
@@ -389,7 +389,7 @@ def process_message(con, msg, dry_run=False) -> str:
         # Over the per-run cap (or summaries disabled): store a deterministic summary now so
         # the message still shows its substance and its documents. The model upgrade happens
         # on the next run or via /mail/reprocess (which re-summarizes from the stored docs,
-        # no re-fetch) — a message without a fable-5 summary is re-processed, never skipped.
+        # no re-fetch) — a message without a model summary is re-processed, never skipped.
         if not NO_SUMMARY:
             summary = mailsweep._fallback_summary(subject, body, docs, anchor,
                                                   why="deferred past this run's summary cap")
@@ -451,7 +451,7 @@ def reprocess(con, days: int) -> str:
     done = 0
     for i, r in enumerate(rows):
         cur = json.loads(r["summary"]) if r["summary"] else {}
-        if cur.get("_engine") == "fable-5":
+        if mailsweep.is_model_summary(cur):
             continue   # already has a good summary
         set_status(stage=f"Re-summarizing {i + 1}/{len(rows)}: {r['subject'][:40]}")
         docs = [dict(d) for d in con.execute(

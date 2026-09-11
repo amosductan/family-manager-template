@@ -42,7 +42,7 @@ Every table downloads as a spreadsheet.
 
 ## Set it up
 
-You need Python 3.11+ and, for the AI features (mail briefings and Ask), the `claude` command-line tool signed in to a Claude account. Without it, briefings fall back to plain extraction and Ask shows its matches without an answer.
+You need Python 3.11+ and, for the AI features (mail briefings and Ask), one model provider: a signed-in `claude` or `codex` command-line tool (a Claude or ChatGPT plan), an API key for Anthropic, OpenAI or Gemini, or a local model through Ollama. You pick it in `.env`. Without it, briefings fall back to plain extraction and Ask shows its matches without an answer.
 
 ```bash
 git clone <this repo>
@@ -58,8 +58,8 @@ Then open the folder in your AI coding assistant and say **"set up my family."**
 
 - Everything lives in `data/` on your machine, which git ignores.
 - Mail is read over IMAP with an app password you create and can revoke.
-- AI calls go through the `claude` command on your own login. An API key left in your environment is stripped so it can't be billed by accident.
-- `python claude_headless.py --costs` shows what the model calls have cost.
+- AI calls go to the provider you pick. With none picked, the app uses a signed-in `claude` or `codex` tool and never bills an API key it happens to find; an API provider runs only when you name it.
+- `python llm.py --check` tests your provider with one short call, and `python llm.py --costs` shows what the calls have cost.
 
 ## Hosted version
 
